@@ -2,9 +2,9 @@ const CACHE_NAME = 'fieldpro-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  'https://cdn.tailwindcss.com',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js',
   'https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap'
 ];
 
