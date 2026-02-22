@@ -306,32 +306,67 @@ const App: React.FC = () => {
 
   const [lang, setLang] = useState<'en' | 'bn'>('en');
   const [shops, setShops] = useState<Shop[]>(() => {
-    const saved = localStorage.getItem('fieldpro_shops');
-    return saved ? JSON.parse(saved) : INITIAL_SHOPS;
+    try {
+      const saved = localStorage.getItem('fieldpro_shops');
+      return saved ? JSON.parse(saved) : INITIAL_SHOPS;
+    } catch (e) {
+      console.error("Failed to parse shops:", e);
+      return INITIAL_SHOPS;
+    }
   });
   const [areas, setAreas] = useState<Area[]>(() => {
-    const saved = localStorage.getItem('fieldpro_areas');
-    return saved ? JSON.parse(saved) : INITIAL_AREAS;
+    try {
+      const saved = localStorage.getItem('fieldpro_areas');
+      return saved ? JSON.parse(saved) : INITIAL_AREAS;
+    } catch (e) {
+      console.error("Failed to parse areas:", e);
+      return INITIAL_AREAS;
+    }
   });
   const [routes, setRoutes] = useState<SalesRoute[]>(() => {
-    const saved = localStorage.getItem('fieldpro_routes');
-    return saved ? JSON.parse(saved) : DEMO_ROUTES;
+    try {
+      const saved = localStorage.getItem('fieldpro_routes');
+      return saved ? JSON.parse(saved) : DEMO_ROUTES;
+    } catch (e) {
+      console.error("Failed to parse routes:", e);
+      return DEMO_ROUTES;
+    }
   });
   const [visits, setVisits] = useState<Visit[]>(() => {
-    const saved = localStorage.getItem('fieldpro_visits');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_visits');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse visits:", e);
+      return [];
+    }
   });
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('fieldpro_products');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_products');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse products:", e);
+      return [];
+    }
   });
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('fieldpro_orders');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse orders:", e);
+      return [];
+    }
   });
   const [dealers, setDealers] = useState<Dealer[]>(() => {
-    const saved = localStorage.getItem('fieldpro_dealers');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_dealers');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse dealers:", e);
+      return [];
+    }
   });
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
