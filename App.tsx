@@ -38,56 +38,70 @@ const LocationPickerMap = ({
     if (!containerRef.current) return;
     // @ts-ignore
     const L = window.L;
-    if (!L) return;
+    if (!L) {
+      console.error("FieldPro: Leaflet (L) not found in LocationPickerMap");
+      return;
+    }
 
-    mapInstance.current = L.map(containerRef.current, {
-      zoomControl: true,
-      scrollWheelZoom: true,
-      rotate: true,
-      touchRotate: true
-    }).setView([initialLocation.lat, initialLocation.lng], 16);
+    console.log("FieldPro: Initializing LocationPickerMap at", initialLocation);
 
-    layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
-    layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+    try {
+      mapInstance.current = L.map(containerRef.current, {
+        zoomControl: true,
+        scrollWheelZoom: true,
+        rotate: true,
+        touchRotate: true
+      }).setView([initialLocation.lat, initialLocation.lng], 16);
 
-    markerInstance.current = L.marker([initialLocation.lat, initialLocation.lng], {
-      draggable: true
-    }).addTo(mapInstance.current);
+      layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
+      layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
 
-    markerInstance.current.on('dragend', (e: any) => {
-      const latlng = e.target.getLatLng();
-      onChange({ lat: latlng.lat, lng: latlng.lng });
-    });
+      markerInstance.current = L.marker([initialLocation.lat, initialLocation.lng], {
+        draggable: true
+      }).addTo(mapInstance.current);
 
-    mapInstance.current.on('click', (e: any) => {
-      markerInstance.current.setLatLng(e.latlng);
-      onChange({ lat: e.latlng.lat, lng: e.latlng.lng });
-    });
+      markerInstance.current.on('dragend', (e: any) => {
+        const latlng = e.target.getLatLng();
+        onChange({ lat: latlng.lat, lng: latlng.lng });
+      });
 
-    // Manual Touch Rotation Gesture Logic
-    let initialAngle = 0;
-    let initialBearing = 0;
-    const container = mapInstance.current.getContainer();
+      mapInstance.current.on('click', (e: any) => {
+        markerInstance.current.setLatLng(e.latlng);
+        onChange({ lat: e.latlng.lat, lng: e.latlng.lng });
+      });
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        initialAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        initialBearing = mapInstance.current.getBearing();
-      }
-    };
+      // Manual Touch Rotation Gesture Logic
+      let initialAngle = 0;
+      let initialBearing = 0;
+      const container = mapInstance.current.getContainer();
 
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const currentAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        const delta = currentAngle - initialAngle;
-        mapInstance.current.setBearing(initialBearing + delta);
-      }
-    };
+      const onTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 2) {
+          initialAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
+          initialBearing = mapInstance.current.getBearing();
+        }
+      };
 
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
+      const onTouchMove = (e: TouchEvent) => {
+        if (e.touches.length === 2) {
+          const currentAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
+          const delta = currentAngle - initialAngle;
+          mapInstance.current.setBearing(initialBearing + delta);
+        }
+      };
 
-    setTimeout(() => mapInstance.current?.invalidateSize(), 300);
+      container.addEventListener('touchstart', onTouchStart, { passive: false });
+      container.addEventListener('touchmove', onTouchMove, { passive: false });
+
+      setTimeout(() => {
+        if (mapInstance.current) {
+          mapInstance.current.invalidateSize();
+          console.log("FieldPro: LocationPickerMap invalidated size");
+        }
+      }, 500);
+    } catch (err) {
+      console.error("FieldPro: Failed to init LocationPickerMap:", err);
+    }
 
     return () => {
       if (mapInstance.current) {
@@ -149,48 +163,62 @@ const MiniMap = ({ location, label }: { location: GeoLocation; label?: string })
     if (!containerRef.current) return;
     // @ts-ignore
     const L = window.L;
-    if (!L) return;
-    
-    mapInstance.current = L.map(containerRef.current, {
-      zoomControl: false,
-      attributionControl: false,
-      dragging: false,
-      scrollWheelZoom: false,
-      rotate: true,
-      touchRotate: true
-    }).setView([location.lat, location.lng], 16);
-    
-    layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
-    layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
-    
-    const marker = L.marker([location.lat, location.lng]).addTo(mapInstance.current);
-    if (label) {
-      marker.bindTooltip(label, { permanent: true, direction: 'top', className: 'minimal-label' }).openTooltip();
+    if (!L) {
+      console.error("FieldPro: Leaflet (L) not found in MiniMap");
+      return;
     }
 
-    let initialAngle = 0;
-    let initialBearing = 0;
-    const container = mapInstance.current.getContainer();
+    console.log("FieldPro: Initializing MiniMap at", location);
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        initialAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        initialBearing = mapInstance.current.getBearing();
+    try {
+      mapInstance.current = L.map(containerRef.current, {
+        zoomControl: false,
+        attributionControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        rotate: true,
+        touchRotate: true
+      }).setView([location.lat, location.lng], 16);
+      
+      layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
+      layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+      
+      const marker = L.marker([location.lat, location.lng]).addTo(mapInstance.current);
+      if (label) {
+        marker.bindTooltip(label, { permanent: true, direction: 'top', className: 'minimal-label' }).openTooltip();
       }
-    };
 
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const currentAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        const delta = currentAngle - initialAngle;
-        mapInstance.current.setBearing(initialBearing + delta);
-      }
-    };
+      let initialAngle = 0;
+      let initialBearing = 0;
+      const container = mapInstance.current.getContainer();
 
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
+      const onTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 2) {
+          initialAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
+          initialBearing = mapInstance.current.getBearing();
+        }
+      };
 
-    setTimeout(() => mapInstance.current?.invalidateSize(), 300);
+      const onTouchMove = (e: TouchEvent) => {
+        if (e.touches.length === 2) {
+          const currentAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
+          const delta = currentAngle - initialAngle;
+          mapInstance.current.setBearing(initialBearing + delta);
+        }
+      };
+
+      container.addEventListener('touchstart', onTouchStart, { passive: false });
+      container.addEventListener('touchmove', onTouchMove, { passive: false });
+
+      setTimeout(() => {
+        if (mapInstance.current) {
+          mapInstance.current.invalidateSize();
+          console.log("FieldPro: MiniMap invalidated size");
+        }
+      }, 500);
+    } catch (err) {
+      console.error("FieldPro: Failed to init MiniMap:", err);
+    }
 
     return () => {
       if (mapInstance.current) {
