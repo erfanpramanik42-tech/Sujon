@@ -30,12 +30,21 @@
     </noscript>
     <script type="module" src="/index.tsx"></script>
     <script>
-      // Unregister existing service workers to clear potentially broken cache
+      // Force clear service workers and cache to fix stuck loading on Netlify
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(function(registrations) {
           for(let registration of registrations) {
             registration.unregister();
+            console.log("FieldPro: Service Worker unregistered");
           }
+        }).catch(err => console.error("SW Unregister failed:", err));
+      }
+      
+      // Clear Cache API
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          for (let name of names) caches.delete(name);
+          console.log("FieldPro: Caches cleared");
         });
       }
     </script>
