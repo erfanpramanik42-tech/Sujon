@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Geolocation } from '@capacitor/geolocation';
 import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer } from './types';
 import { INITIAL_AREAS, INITIAL_SHOPS, TRANSLATIONS, DEMO_ROUTES } from './constants';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
@@ -600,68 +601,87 @@ const App: React.FC = () => {
   }, [shops, areas, routes, visits, products, orders, dealers, detectionRange, nearbyRange]);
 
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
-        const newLoc = { 
-          lat: smoothed.lat, 
-          lng: smoothed.lng,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed
-        };
-        setCurrentLocation(newLoc);
-        shopsRef.current.forEach(shop => {
-          const dist = calculateDistance(newLoc, shop.location);
-          if (dist < 40) { 
-            if (!alertedShopsRef.current.has(shop.id)) {
-              setAlertInfo({ show: true, shopName: shop.name, ownerName: shop.ownerName });
-              alertedShopsRef.current.add(shop.id);
-            }
-          } else if (dist > 100) {
-            alertedShopsRef.current.delete(shop.id);
-          }
-        });
-        if (isTrackingRef.current && activeRouteRef.current) {
-          const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
-          const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
-          if (displacement >= 3) {
-            setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
-          }
-          if (lastStopCheckLocRef.current) {
-            const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
-            if (staticDist < 15) {
-              staticTimeCounterRef.current += 1;
-              if (staticTimeCounterRef.current === 3) {
-                const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
-                const near = shopsByD[0];
-                const areaName = near && near.d < 100 
-                  ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
-                  : 'Field Point';
-                setActiveRoute(prev => {
-                  if (!prev) return null;
-                  const newStop: StopPoint = {
-                    location: newLoc,
-                    areaName: areaName,
-                    stopNumber: prev.stops.length + 1,
-                    timestamp: Date.now()
-                  };
-                  return { ...prev, stops: [...prev.stops, newStop] };
-                });
-              }
-            } else {
-              staticTimeCounterRef.current = 0;
-              lastStopCheckLocRef.current = newLoc;
-            }
-          } else {
-            lastStopCheckLocRef.current = newLoc;
-          }
+    let watchId: string | null = null;
+
+    const startTracking = async () => {
+      try {
+        const permissions = await Geolocation.checkPermissions();
+        if (permissions.location !== 'granted') {
+          await Geolocation.requestPermissions();
         }
-      },
-      (err) => console.error('Watch error:', err),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-    return () => navigator.geolocation.clearWatch(watchId);
+
+        watchId = await Geolocation.watchPosition(
+          { enableHighAccuracy: true, timeout: 10000 },
+          (pos) => {
+            if (!pos) return;
+            const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
+            const newLoc = { 
+              lat: smoothed.lat, 
+              lng: smoothed.lng,
+              heading: pos.coords.heading,
+              speed: pos.coords.speed
+            };
+            setCurrentLocation(newLoc);
+            shopsRef.current.forEach(shop => {
+              const dist = calculateDistance(newLoc, shop.location);
+              if (dist < 40) { 
+                if (!alertedShopsRef.current.has(shop.id)) {
+                  setAlertInfo({ show: true, shopName: shop.name, ownerName: shop.ownerName });
+                  alertedShopsRef.current.add(shop.id);
+                }
+              } else if (dist > 100) {
+                alertedShopsRef.current.delete(shop.id);
+              }
+            });
+            if (isTrackingRef.current && activeRouteRef.current) {
+              const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
+              const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
+              if (displacement >= 3) {
+                setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
+              }
+              if (lastStopCheckLocRef.current) {
+                const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
+                if (staticDist < 15) {
+                  staticTimeCounterRef.current += 1;
+                  if (staticTimeCounterRef.current === 3) {
+                    const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
+                    const near = shopsByD[0];
+                    const areaName = near && near.d < 100 
+                      ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
+                      : 'Field Point';
+                    setActiveRoute(prev => {
+                      if (!prev) return null;
+                      const newStop: StopPoint = {
+                        location: newLoc,
+                        areaName: areaName,
+                        stopNumber: prev.stops.length + 1,
+                        timestamp: Date.now()
+                      };
+                      return { ...prev, stops: [...prev.stops, newStop] };
+                    });
+                  }
+                } else {
+                  staticTimeCounterRef.current = 0;
+                  lastStopCheckLocRef.current = newLoc;
+                }
+              } else {
+                lastStopCheckLocRef.current = newLoc;
+              }
+            }
+          }
+        );
+      } catch (err) {
+        console.error('Geolocation error:', err);
+      }
+    };
+
+    startTracking();
+
+    return () => {
+      if (watchId) {
+        Geolocation.clearWatch({ id: watchId });
+      }
+    };
   }, []);
 
   const toggleTracking = () => {

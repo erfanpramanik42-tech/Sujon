@@ -1,4 +1,4 @@
-
+import { Geolocation } from '@capacitor/geolocation';
 import { GeoLocation } from '../types';
 
 /**
@@ -20,38 +20,49 @@ export const calculateDistance = (loc1: GeoLocation, loc2: GeoLocation): number 
 };
 
 /**
- * Forces a fresh high-accuracy GPS fix.
+ * Forces a fresh high-accuracy GPS fix using Capacitor Geolocation.
  */
-export const getCurrentPosition = (options?: PositionOptions): Promise<GeolocationPosition> => {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not supported'));
-      return;
+export const getCurrentPosition = async (options?: any): Promise<any> => {
+  try {
+    // Check/Request permissions first
+    const permissions = await Geolocation.checkPermissions();
+    if (permissions.location !== 'granted') {
+      const request = await Geolocation.requestPermissions();
+      if (request.location !== 'granted') {
+        throw new Error('Location permission denied');
+      }
     }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
+
+    const position = await Geolocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeout: 10000,
-      maximumAge: 0,
       ...options
     });
-  });
+    
+    return position;
+  } catch (error) {
+    console.error('Error getting location:', error);
+    throw error;
+  }
 };
 
 /**
  * GPS Stabilization Logic: 
  * Ensures coordinates are not drifting by sampling for 3 seconds.
  */
-export const getStabilizedPosition = (): Promise<GeolocationPosition> => {
-  return new Promise((resolve, reject) => {
-    const samples: GeolocationPosition[] = [];
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => samples.push(pos),
-      (err) => {},
-      { enableHighAccuracy: true, maximumAge: 0 }
-    );
+export const getStabilizedPosition = async (): Promise<any> => {
+  const samples: any[] = [];
+  
+  const watchId = await Geolocation.watchPosition(
+    { enableHighAccuracy: true },
+    (pos) => {
+      if (pos) samples.push(pos);
+    }
+  );
 
-    setTimeout(() => {
-      navigator.geolocation.clearWatch(watchId);
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      await Geolocation.clearWatch({ id: watchId });
       if (samples.length === 0) {
         getCurrentPosition().then(resolve).catch(reject);
       } else {
