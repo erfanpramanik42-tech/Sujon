@@ -1,0 +1,51 @@
+name: Build Android App
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Build Web App
+      run: npm run build
+
+    - name: Add Android Platform
+      run: |
+        npx cap add android || true
+        npx cap sync android
+
+    - name: Update Permissions
+      run: |
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        # Safe insertion before <application tag
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO" />' $MANIFEST
+        sed -i '/<application/i \    <uses-feature android:name="android.hardware.location.gps" android:required="false" />' $MANIFEST
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Build APK
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug --stacktrace
