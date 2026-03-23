@@ -16,7 +16,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22' # এখানে ২০ এর বদলে ২২ করে দেওয়া হয়েছে
         cache: 'npm'
 
     - name: Install dependencies
@@ -61,7 +61,7 @@ jobs:
         add_permission "android.permission.RECORD_AUDIO"
         add_permission "android.permission.MODIFY_AUDIO_SETTINGS"
         
-        # Add Features (GPS and Camera)
+        # Add Features
         add_feature "android.hardware.location.gps"
         add_feature "android.hardware.camera"
         add_feature "android.hardware.camera.autofocus"
