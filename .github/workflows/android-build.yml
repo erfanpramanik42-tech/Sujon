@@ -3,20 +3,17 @@ name: Build Android App
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22' # এখানে ২০ এর বদলে ২২ করে দেওয়া হয়েছে
+        node-version: '22'
         cache: 'npm'
 
     - name: Install dependencies
@@ -27,60 +24,28 @@ jobs:
 
     - name: Add Android Platform
       run: |
-        if [ ! -d "android" ]; then
-          npx cap add android
-        fi
+        npx cap add android || true
         npx cap sync android
 
-    - name: Update AndroidManifest.xml for Permissions
+    - name: Update Permissions
       run: |
-        MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
-        
-        # Function to add permission if not exists
-        add_permission() {
-          if ! grep -q "$1" "$MANIFEST_PATH"; then
-            sed -i "/<manifest/a \    <uses-permission android:name=\"$1\" />" "$MANIFEST_PATH"
-          fi
-        }
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        # Safe insertion before <application tag
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO" />' $MANIFEST
+        sed -i '/<application/i \    <uses-feature android:name="android.hardware.location.gps" android:required="false" />' $MANIFEST
 
-        # Function to add feature if not exists
-        add_feature() {
-          if ! grep -q "$1" "$MANIFEST_PATH"; then
-            sed -i "/<manifest/a \    <uses-feature android:name=\"$1\" android:required=\"false\" />" "$MANIFEST_PATH"
-          fi
-        }
-        
-        # Add Permissions
-        add_permission "android.permission.INTERNET"
-        add_permission "android.permission.CAMERA"
-        add_permission "android.permission.ACCESS_FINE_LOCATION"
-        add_permission "android.permission.ACCESS_COARSE_LOCATION"
-        add_permission "android.permission.ACCESS_BACKGROUND_LOCATION"
-        add_permission "android.permission.READ_EXTERNAL_STORAGE"
-        add_permission "android.permission.WRITE_EXTERNAL_STORAGE"
-        add_permission "android.permission.RECORD_AUDIO"
-        add_permission "android.permission.MODIFY_AUDIO_SETTINGS"
-        
-        # Add Features
-        add_feature "android.hardware.location.gps"
-        add_feature "android.hardware.camera"
-        add_feature "android.hardware.camera.autofocus"
-
-    - name: Set up JDK 17
+    - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
-        cache: 'gradle'
 
-    - name: Build Android APK
+    - name: Build APK
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        ./gradlew assembleDebug --stacktrace
