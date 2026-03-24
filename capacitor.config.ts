@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.fieldpro.assistant',
   appName: 'FieldPro Assistant',
   webDir: 'dist',
-  bundledWebRuntime: false,
   server: {
     androidScheme: 'https'
   }

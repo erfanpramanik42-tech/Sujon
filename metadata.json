@@ -1,5 +1,5 @@
 {
-  "name": "Last",
+  "name": "FieldPro Assistant",
   "description": "A comprehensive field sales management tool with GPS tracking, shop management, and proximity notifications designed for sales professionals.",
   "requestFramePermissions": [
     "camera",

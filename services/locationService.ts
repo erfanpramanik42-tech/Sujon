@@ -24,22 +24,55 @@ export const calculateDistance = (loc1: GeoLocation, loc2: GeoLocation): number 
  */
 export const getCurrentPosition = async (options?: any): Promise<any> => {
   try {
-    // Check/Request permissions first
-    const permissions = await Geolocation.checkPermissions();
-    if (permissions.location !== 'granted') {
-      const request = await Geolocation.requestPermissions();
-      if (request.location !== 'granted') {
-        throw new Error('Location permission denied');
-      }
-    }
-
-    const position = await Geolocation.getCurrentPosition({
-      enableHighAccuracy: true,
-      timeout: 10000,
-      ...options
-    });
+    // Check if we are running in a native environment
+    // Capacitor plugins might throw "Not implemented on web" if not properly registered
+    // or if the web implementation is missing. We'll use a fallback.
     
-    return position;
+    try {
+      const permissions = await Geolocation.checkPermissions();
+      if (permissions.location !== 'granted') {
+        const request = await Geolocation.requestPermissions();
+        if (request.location !== 'granted') {
+          // If denied, we still try navigator as a last resort, but usually it will also be denied
+        }
+      }
+
+      const position = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        ...options
+      });
+      
+      return position;
+    } catch (capError: any) {
+      // If Capacitor fails with "Not implemented", fallback to browser API
+      if (capError.message?.includes('Not implemented') || !Geolocation) {
+        console.warn('Capacitor Geolocation not implemented, falling back to browser API');
+        return new Promise((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error('Geolocation not supported by browser'));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({
+              coords: {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                accuracy: pos.coords.accuracy,
+                altitude: pos.coords.altitude,
+                altitudeAccuracy: pos.coords.altitudeAccuracy,
+                heading: pos.coords.heading,
+                speed: pos.coords.speed
+              },
+              timestamp: pos.timestamp
+            }),
+            (err) => reject(err),
+            { enableHighAccuracy: true, timeout: 10000, ...options }
+          );
+        });
+      }
+      throw capError;
+    }
   } catch (error) {
     console.error('Error getting location:', error);
     throw error;
@@ -52,17 +85,49 @@ export const getCurrentPosition = async (options?: any): Promise<any> => {
  */
 export const getStabilizedPosition = async (): Promise<any> => {
   const samples: any[] = [];
+  let watchId: string | number | null = null;
   
-  const watchId = await Geolocation.watchPosition(
-    { enableHighAccuracy: true },
-    (pos) => {
-      if (pos) samples.push(pos);
+  try {
+    watchId = await Geolocation.watchPosition(
+      { enableHighAccuracy: true },
+      (pos) => {
+        if (pos) samples.push(pos);
+      }
+    );
+  } catch (e: any) {
+    if (e.message?.includes('Not implemented')) {
+      // Fallback for watchPosition
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          samples.push({
+            coords: {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+              altitude: pos.coords.altitude,
+              altitudeAccuracy: pos.coords.altitudeAccuracy,
+              heading: pos.coords.heading,
+              speed: pos.coords.speed
+            },
+            timestamp: pos.timestamp
+          });
+        },
+        (err) => console.error(err),
+        { enableHighAccuracy: true }
+      );
     }
-  );
+  }
 
   return new Promise((resolve, reject) => {
     setTimeout(async () => {
-      await Geolocation.clearWatch({ id: watchId });
+      if (watchId !== null) {
+        if (typeof watchId === 'string') {
+          await Geolocation.clearWatch({ id: watchId });
+        } else {
+          navigator.geolocation.clearWatch(watchId);
+        }
+      }
+      
       if (samples.length === 0) {
         getCurrentPosition().then(resolve).catch(reject);
       } else {

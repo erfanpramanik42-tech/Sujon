@@ -276,7 +276,7 @@ const Header = ({ title, location, lang, onLangToggle, isTracking, onTrackingTog
 const Navbar = ({ view, setView, t }: any) => (
   <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 pb-safe-area z-[100]">
     <div className="flex justify-around items-center h-16 max-w-4xl mx-auto px-2">
-      {(['Dashboard', 'Map', 'Shops', 'History', 'Settings'] as AppView[]).map(v => (
+      {(['Dashboard', 'Map', 'Shops', 'History', 'Settings', 'Mobile'] as AppView[]).map(v => (
         <button 
           key={v}
           onClick={() => setView(v)}
@@ -288,6 +288,7 @@ const Navbar = ({ view, setView, t }: any) => (
             {v === 'Shops' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>}
             {v === 'History' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>}
             {v === 'Settings' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>}
+            {v === 'Mobile' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M7 2a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H7zm3 14a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>}
           </div>
           <span className="text-[9px] font-bold uppercase tracking-wider">{t(v.toLowerCase())}</span>
         </button>
@@ -601,85 +602,119 @@ const App: React.FC = () => {
   }, [shops, areas, routes, visits, products, orders, dealers, detectionRange, nearbyRange]);
 
   useEffect(() => {
-    let watchId: string | null = null;
+    let watchId: string | number | null = null;
 
     const startTracking = async () => {
       try {
-        const permissions = await Geolocation.checkPermissions();
-        if (permissions.location !== 'granted') {
-          await Geolocation.requestPermissions();
-        }
-
-        watchId = await Geolocation.watchPosition(
-          { enableHighAccuracy: true, timeout: 10000 },
-          (pos) => {
-            if (!pos) return;
-            const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
-            const newLoc = { 
-              lat: smoothed.lat, 
-              lng: smoothed.lng,
-              heading: pos.coords.heading,
-              speed: pos.coords.speed
-            };
-            setCurrentLocation(newLoc);
-            shopsRef.current.forEach(shop => {
-              const dist = calculateDistance(newLoc, shop.location);
-              if (dist < 40) { 
-                if (!alertedShopsRef.current.has(shop.id)) {
-                  setAlertInfo({ show: true, shopName: shop.name, ownerName: shop.ownerName });
-                  alertedShopsRef.current.add(shop.id);
-                }
-              } else if (dist > 100) {
-                alertedShopsRef.current.delete(shop.id);
-              }
-            });
-            if (isTrackingRef.current && activeRouteRef.current) {
-              const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
-              const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
-              if (displacement >= 3) {
-                setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
-              }
-              if (lastStopCheckLocRef.current) {
-                const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
-                if (staticDist < 15) {
-                  staticTimeCounterRef.current += 1;
-                  if (staticTimeCounterRef.current === 3) {
-                    const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
-                    const near = shopsByD[0];
-                    const areaName = near && near.d < 100 
-                      ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
-                      : 'Field Point';
-                    setActiveRoute(prev => {
-                      if (!prev) return null;
-                      const newStop: StopPoint = {
-                        location: newLoc,
-                        areaName: areaName,
-                        stopNumber: prev.stops.length + 1,
-                        timestamp: Date.now()
-                      };
-                      return { ...prev, stops: [...prev.stops, newStop] };
-                    });
-                  }
-                } else {
-                  staticTimeCounterRef.current = 0;
-                  lastStopCheckLocRef.current = newLoc;
-                }
-              } else {
-                lastStopCheckLocRef.current = newLoc;
-              }
-            }
+        try {
+          const permissions = await Geolocation.checkPermissions();
+          if (permissions.location !== 'granted') {
+            await Geolocation.requestPermissions();
           }
-        );
+
+          watchId = await Geolocation.watchPosition(
+            { enableHighAccuracy: true, timeout: 10000 },
+            (pos) => {
+              if (!pos) return;
+              handlePositionUpdate(pos);
+            }
+          );
+        } catch (capError: any) {
+          if (capError.message?.includes('Not implemented') || !Geolocation) {
+            console.warn('Capacitor Geolocation not implemented in App.tsx, falling back to browser API');
+            watchId = navigator.geolocation.watchPosition(
+              (pos) => {
+                handlePositionUpdate({
+                  coords: {
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    altitude: pos.coords.altitude,
+                    altitudeAccuracy: pos.coords.altitudeAccuracy,
+                    heading: pos.coords.heading,
+                    speed: pos.coords.speed
+                  },
+                  timestamp: pos.timestamp
+                } as any);
+              },
+              (err) => console.error('Browser Geolocation error:', err),
+              { enableHighAccuracy: true, timeout: 10000 }
+            );
+          } else {
+            throw capError;
+          }
+        }
       } catch (err) {
         console.error('Geolocation error:', err);
+      }
+    };
+
+    const handlePositionUpdate = (pos: any) => {
+      const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
+      const newLoc = { 
+        lat: smoothed.lat, 
+        lng: smoothed.lng,
+        heading: pos.coords.heading,
+        speed: pos.coords.speed
+      };
+      setCurrentLocation(newLoc);
+      shopsRef.current.forEach(shop => {
+        const dist = calculateDistance(newLoc, shop.location);
+        if (dist < 40) { 
+          if (!alertedShopsRef.current.has(shop.id)) {
+            setAlertInfo({ show: true, shopName: shop.name, ownerName: shop.ownerName });
+            alertedShopsRef.current.add(shop.id);
+          }
+        } else if (dist > 100) {
+          alertedShopsRef.current.delete(shop.id);
+        }
+      });
+      if (isTrackingRef.current && activeRouteRef.current) {
+        const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
+        const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
+        if (displacement >= 3) {
+          setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
+        }
+        if (lastStopCheckLocRef.current) {
+          const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
+          if (staticDist < 15) {
+            staticTimeCounterRef.current += 1;
+            if (staticTimeCounterRef.current === 3) {
+              const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
+              const near = shopsByD[0];
+              const areaName = near && near.d < 100 
+                ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
+                : 'Field Point';
+              setActiveRoute(prev => {
+                if (!prev) return null;
+                const newStop: StopPoint = {
+                  location: newLoc,
+                  areaName: areaName,
+                  stopNumber: prev.stops.length + 1,
+                  timestamp: Date.now()
+                };
+                return { ...prev, stops: [...prev.stops, newStop] };
+              });
+            }
+          } else {
+            staticTimeCounterRef.current = 0;
+            lastStopCheckLocRef.current = newLoc;
+          }
+        } else {
+          lastStopCheckLocRef.current = newLoc;
+        }
       }
     };
 
     startTracking();
 
     return () => {
-      if (watchId) {
-        Geolocation.clearWatch({ id: watchId });
+      if (watchId !== null) {
+        if (typeof watchId === 'string') {
+          Geolocation.clearWatch({ id: watchId });
+        } else {
+          navigator.geolocation.clearWatch(watchId);
+        }
       }
     };
   }, []);
@@ -1585,6 +1620,42 @@ const App: React.FC = () => {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {view === 'Mobile' && (
+          <div className="flex flex-col h-full gap-6 animate-fadeIn pb-24 overflow-y-auto scrollbar-hide text-left">
+            <div className="bg-indigo-600 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
+              <div className="relative z-10">
+                <h2 className="text-2xl font-black mb-2">{t('downloadInstructions')}</h2>
+                <p className="text-indigo-100 text-sm opacity-90">{t('githubActionsInfo')}</p>
+              </div>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 blur-2xl"></div>
+            </div>
+
+            <div className="space-y-4">
+              {[1, 2, 3, 4, 5].map(num => (
+                <div key={num} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex gap-4 items-start">
+                  <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-black flex-shrink-0 border border-indigo-100">
+                    {num}
+                  </div>
+                  <p className="text-slate-700 font-bold text-sm leading-relaxed pt-1">
+                    {t(`step${num}`)}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex gap-4 items-start">
+              <div className="text-amber-500 pt-1">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+              </div>
+              <p className="text-xs font-bold text-amber-800 leading-relaxed">
+                {lang === 'en' 
+                  ? 'Note: You must be logged into your GitHub account to see the "Actions" tab and download artifacts.'
+                  : 'দ্রষ্টব্য: "Actions" ট্যাব দেখতে এবং ফাইল ডাউনলোড করতে আপনাকে অবশ্যই আপনার GitHub অ্যাকাউন্টে লগ-ইন থাকতে হবে।'}
+              </p>
+            </div>
           </div>
         )}
       </main>
