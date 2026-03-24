@@ -103,7 +103,7 @@ export interface SalesRoute {
   isArchived?: boolean;
 }
 
-export type AppView = 'Dashboard' | 'Map' | 'Shops' | 'History' | 'Settings' | 'Mobile';
+export type AppView = 'Dashboard' | 'Map' | 'Shops' | 'History' | 'Settings';
 
 export interface Translations {
   [key: string]: {

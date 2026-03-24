@@ -183,7 +183,6 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       leafletMap.current = L.map(mapRef.current, {
         zoomControl: false,
         attributionControl: false,
-        preferCanvas: true,
         rotate: true, 
         touchRotate: true,
         zoomSnap: 0, 
@@ -222,8 +221,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       container.addEventListener('touchstart', onTouchStart, { passive: false });
       container.addEventListener('touchmove', onTouchMove, { passive: false });
       
+      const currentMap = leafletMap.current;
       setTimeout(() => {
-        if (leafletMap.current) leafletMap.current.invalidateSize();
+        if (currentMap && currentMap === leafletMap.current) {
+          currentMap.invalidateSize();
+        }
       }, 500);
     }
 
@@ -237,8 +239,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
 
   useEffect(() => {
     if (leafletMap.current && activeRoute) {
+      const currentMap = leafletMap.current;
       setTimeout(() => {
-        leafletMap.current.invalidateSize();
+        if (currentMap && currentMap === leafletMap.current) {
+          currentMap.invalidateSize();
+        }
       }, 300);
     }
   }, [activeRoute?.id]);

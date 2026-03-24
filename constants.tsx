@@ -146,13 +146,5 @@ export const TRANSLATIONS: Translations = {
   addProduct: { en: 'Add Product', bn: 'পণ্য যোগ করুন' },
   editProduct: { en: 'Edit Product', bn: 'পণ্য সম্পাদনা' },
   deleteProduct: { en: 'Delete Product', bn: 'পণ্য মুছুন' },
-  confirmDeleteProduct: { en: 'Delete this product from catalog?', bn: 'ক্যাটালগ থেকে এই পণ্যটি মুছতে চান?' },
-  mobileApp: { en: 'Mobile App', bn: 'মোবাইল অ্যাপ' },
-  downloadInstructions: { en: 'Download Android APK', bn: 'অ্যান্ড্রয়েড APK ডাউনলোড করুন' },
-  githubActionsInfo: { en: 'The APK is built on GitHub Actions. Follow these steps to download:', bn: 'APK-টি GitHub Actions-এ তৈরি করা হয়েছে। ডাউনলোড করতে এই ধাপগুলো অনুসরণ করুন:' },
-  step1: { en: '1. Go to your GitHub Repository.', bn: '১. আপনার GitHub রিপোজিটরিতে যান।' },
-  step2: { en: '2. Click on the "Actions" tab.', bn: '২. "Actions" ট্যাবে ক্লিক করুন।' },
-  step3: { en: '3. Select the latest "Build Android App" run.', bn: '৩. সর্বশেষ "Build Android App" রানটি নির্বাচন করুন।' },
-  step4: { en: '4. Scroll down to "Artifacts" and download "app-debug".', bn: '৪. নিচে স্ক্রল করে "Artifacts" থেকে "app-debug" ডাউনলোড করুন।' },
-  step5: { en: '5. Extract the ZIP to find your APK file.', bn: '৫. ZIP ফাইলটি এক্সট্রাক্ট করলে আপনার APK ফাইলটি পাবেন।' }
+  confirmDeleteProduct: { en: 'Delete this product from catalog?', bn: 'ক্যাটালগ থেকে এই পণ্যটি মুছতে চান?' }
 };
