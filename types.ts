@@ -61,6 +61,23 @@ export interface OrderItem {
   discount: number;
 }
 
+export interface ReplacementItem {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface Payment {
+  id: string;
+  shopId: string;
+  amount: number;
+  method: 'Cash' | 'Cheque' | 'MFS' | 'Other';
+  note?: string;
+  timestamp: number;
+  date: string;
+}
+
 export interface Order {
   id: string;
   shopId: string;
@@ -73,6 +90,7 @@ export interface Order {
   dealerDescription?: string; // Logic Addition: Snapshot Words
   signature?: string; // base64 string
   items: OrderItem[];
+  replacements?: ReplacementItem[];
   subtotal: number;
   total: number;
   timestamp: number;
@@ -101,6 +119,23 @@ export interface SalesRoute {
   startTime: number;
   endTime?: number;
   isArchived?: boolean;
+}
+
+export interface Target {
+  id: string;
+  type: 'Sales' | 'Visits';
+  value: number;
+  period: 'Daily' | 'Monthly';
+  startDate: string; // ISO Date
+}
+
+export interface Expense {
+  id: string;
+  category: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  description?: string;
+  timestamp: number;
 }
 
 export type AppView = 'Dashboard' | 'Map' | 'Shops' | 'History' | 'Settings';

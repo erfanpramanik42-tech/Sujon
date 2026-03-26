@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import { Geolocation } from '@capacitor/geolocation';
-import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer } from './types';
+import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense } from './types';
 import { INITIAL_AREAS, INITIAL_SHOPS, TRANSLATIONS, DEMO_ROUTES } from './constants';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
 import { MapComponent } from './components/MapComponent';
@@ -395,9 +398,97 @@ const App: React.FC = () => {
   const [orderCart, setOrderCart] = useState<OrderItem[]>([]);
   const [orderSearch, setOrderSearch] = useState('');
   const [orderTab, setOrderTab] = useState<'taking' | 'history'>('taking');
+  const [orderReplacements, setOrderReplacements] = useState<ReplacementItem[]>([]);
+  const [showReplacementModal, setShowReplacementModal] = useState(false);
+  const [tempReplacement, setTempReplacement] = useState<Partial<ReplacementItem>>({});
+
+  const [payments, setPayments] = useState<Payment[]>(() => {
+    const saved = localStorage.getItem('fieldpro_payments');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showPaymentHistory, setShowPaymentHistory] = useState(false);
+  const [tempPayment, setTempPayment] = useState<Partial<Payment>>({});
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_payments', JSON.stringify(payments));
+  }, [payments]);
+
+  const getShopBalance = useCallback((shopId: string) => {
+    const shopOrders = orders.filter(o => o.shopId === shopId);
+    const shopPayments = payments.filter(p => p.shopId === shopId);
+    const totalOrdered = shopOrders.reduce((sum, o) => sum + o.total, 0);
+    const totalPaid = shopPayments.reduce((sum, p) => sum + p.amount, 0);
+    return totalOrdered - totalPaid;
+  }, [orders, payments]);
 
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showSmartRoute, setShowSmartRoute] = useState(false);
+  const [showTargetVsAchievement, setShowTargetVsAchievement] = useState(false);
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const saved = localStorage.getItem('fieldpro_expenses');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [showExpensesModal, setShowExpensesModal] = useState(false);
+  const [tempExpense, setTempExpense] = useState<Partial<Expense>>({});
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_expenses', JSON.stringify(expenses));
+  }, [expenses]);
+
+  const addExpense = () => {
+    if (!tempExpense.category || !tempExpense.amount) return;
+    const newExpense: Expense = {
+      id: generateId(),
+      category: tempExpense.category,
+      amount: Number(tempExpense.amount),
+      date: tempExpense.date || new Date().toISOString().split('T')[0],
+      description: tempExpense.description,
+      timestamp: Date.now()
+    };
+    setExpenses(prev => [newExpense, ...prev]);
+    setTempExpense({});
+  };
+
+  const deleteExpense = (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  };
+
+  const [targets, setTargets] = useState<Target[]>(() => {
+    const saved = localStorage.getItem('fieldpro_targets');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<Partial<Target> | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_targets', JSON.stringify(targets));
+  }, [targets]);
+
+  const getAchievement = useCallback((type: 'Sales' | 'Visits', period: 'Daily' | 'Monthly') => {
+    const now = new Date();
+    const startOfPeriod = new Date();
+    if (period === 'Daily') {
+      startOfPeriod.setHours(0, 0, 0, 0);
+    } else {
+      startOfPeriod.setDate(1);
+      startOfPeriod.setHours(0, 0, 0, 0);
+    }
+
+    if (type === 'Sales') {
+      const periodOrders = orders.filter(o => {
+        const orderDate = new Date(o.timestamp);
+        return orderDate >= startOfPeriod && orderDate <= now;
+      });
+      return periodOrders.reduce((sum, o) => sum + o.total, 0);
+    } else {
+      const periodVisits = visits.filter(v => {
+        const visitDate = new Date(v.timestamp);
+        return visitDate >= startOfPeriod && visitDate <= now;
+      });
+      return periodVisits.length;
+    }
+  }, [orders, visits]);
 
   const categories = useMemo(() => {
     const cats = Array.from(new Set(products.filter(p => !p.isArchived).map(p => p.category || 'General')));
@@ -473,6 +564,7 @@ const App: React.FC = () => {
   };
   
   const [viewingShop, setViewingShop] = useState<Shop | null>(null);
+  const [viewingFullPhoto, setViewingFullPhoto] = useState<string | null>(null);
   const [alertInfo, setAlertInfo] = useState<{ 
     show: boolean; 
     title: string; 
@@ -547,6 +639,89 @@ const App: React.FC = () => {
   const [newAreaDay, setNewAreaDay] = useState(currentDayName);
   const [editingShop, setEditingShop] = useState<Partial<Shop> | null>(null);
   const [navigationTarget, setNavigationTarget] = useState<Shop | null>(null);
+
+  // Back button support for Android/Mobile
+  useEffect(() => {
+    const isAnyModalOpen = 
+      isEditingDealer || showDealersList || showCatalog || viewingProduct || 
+      showOrderSystem || showReplacementModal || showPaymentModal || 
+      showPaymentHistory || showAnalytics || showSmartRoute || 
+      showTargetVsAchievement || showExpensesModal || viewingShop || 
+      viewingFullPhoto || viewingRoute || isEditingTarget || isEditingShop ||
+      isManagingAreas || isManagingCatalog || isEditingProduct || 
+      navigationTarget || alertInfo.show || isSavingRoute || 
+      showQuickAccess || selectedOrderForDetail || view !== 'Dashboard';
+
+    if (isAnyModalOpen && !window.history.state?.modal) {
+      window.history.pushState({ modal: true }, '');
+    }
+
+    const handlePopState = () => {
+      setIsEditingDealer(false);
+      setShowDealersList(false);
+      setShowCatalog(false);
+      setViewingProduct(null);
+      setShowOrderSystem(false);
+      setShowReplacementModal(false);
+      setShowPaymentModal(false);
+      setShowPaymentHistory(false);
+      setShowAnalytics(false);
+      setShowSmartRoute(false);
+      setShowTargetVsAchievement(false);
+      setShowExpensesModal(false);
+      setViewingShop(null);
+      setViewingFullPhoto(null);
+      setViewingRoute(null);
+      setIsEditingTarget(false);
+      setIsEditingShop(false);
+      setIsManagingAreas(false);
+      setIsManagingCatalog(false);
+      setIsEditingProduct(false);
+      setNavigationTarget(null);
+      setAlertInfo(prev => ({ ...prev, show: false }));
+      setIsSavingRoute(false);
+      setShowQuickAccess(false);
+      setSelectedOrderForDetail(null);
+      if (view !== 'Dashboard') setView('Dashboard');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [
+    isEditingDealer, showDealersList, showCatalog, viewingProduct, 
+    showOrderSystem, showReplacementModal, showPaymentModal, 
+    showPaymentHistory, showAnalytics, showSmartRoute, 
+    showTargetVsAchievement, showExpensesModal, viewingShop, 
+    viewingFullPhoto, viewingRoute, isEditingTarget, isEditingShop,
+    isManagingAreas, isManagingCatalog, isEditingProduct, 
+    navigationTarget, alertInfo.show, isSavingRoute,
+    showQuickAccess, selectedOrderForDetail, view
+  ]);
+
+  useEffect(() => {
+    const isAnyModalOpen = 
+      isEditingDealer || showDealersList || showCatalog || viewingProduct || 
+      showOrderSystem || showReplacementModal || showPaymentModal || 
+      showPaymentHistory || showAnalytics || showSmartRoute || 
+      showTargetVsAchievement || showExpensesModal || viewingShop || 
+      viewingFullPhoto || viewingRoute || isEditingTarget || isEditingShop ||
+      isManagingAreas || isManagingCatalog || isEditingProduct || 
+      navigationTarget || alertInfo.show || isSavingRoute ||
+      showQuickAccess || selectedOrderForDetail || view !== 'Dashboard';
+
+    if (!isAnyModalOpen && window.history.state?.modal) {
+      window.history.back();
+    }
+  }, [
+    isEditingDealer, showDealersList, showCatalog, viewingProduct, 
+    showOrderSystem, showReplacementModal, showPaymentModal, 
+    showPaymentHistory, showAnalytics, showSmartRoute, 
+    showTargetVsAchievement, showExpensesModal, viewingShop, 
+    viewingFullPhoto, viewingRoute, isEditingTarget, isEditingShop,
+    isManagingAreas, isManagingCatalog, isEditingProduct, 
+    navigationTarget, alertInfo.show, isSavingRoute,
+    showQuickAccess, selectedOrderForDetail, view
+  ]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const productPhotoRef = useRef<HTMLInputElement>(null);
@@ -1059,7 +1234,9 @@ const App: React.FC = () => {
     { id: 'summary', key: 'dailySummary', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
     { id: 'dealers', key: 'dealerDistributor', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> },
     { id: 'analytics', key: 'analytics', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { id: 'targets', key: 'targetVsAchievement', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg> },
     { id: 'routes', key: 'smartRoute', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> },
+    { id: 'expenses', key: 'expenses', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
   ];
 
   const addToCart = (product: Product) => {
@@ -1131,6 +1308,7 @@ const App: React.FC = () => {
         dealerAddress: activeDealer?.address,
         dealerDescription: activeDealer?.description,
         items: [...orderCart],
+        replacements: [...orderReplacements],
         subtotal: cartSummary.subtotal,
         total: cartSummary.total,
         timestamp: Date.now(),
@@ -1138,6 +1316,7 @@ const App: React.FC = () => {
       };
       setOrders(prev => [newOrder, ...prev]);
       setOrderCart([]);
+      setOrderReplacements([]);
       setOrderTab('history');
       setAlertInfo({
         show: true,
@@ -1155,8 +1334,98 @@ const App: React.FC = () => {
     }
   };
 
+  const addReplacement = () => {
+    if (!tempReplacement.productId || !tempReplacement.quantity) {
+      return;
+    }
+    
+    const product = products.find(p => p.id === tempReplacement.productId);
+    
+    if (!product) return;
+    
+    const newItem: ReplacementItem = {
+      id: generateId(),
+      productId: product.id,
+      productName: product.name,
+      quantity: tempReplacement.quantity
+    };
+    
+    setOrderReplacements(prev => [...prev, newItem]);
+    setTempReplacement({});
+    setShowReplacementModal(false);
+  };
+
+  const removeReplacement = (id: string) => {
+    setOrderReplacements(prev => prev.filter(r => r.id !== id));
+  };
+
+  const addPayment = () => {
+    if (!tempPayment.amount || !tempPayment.shopId || !tempPayment.method) {
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Error" : "ত্রুটি",
+        message: lang === 'en' ? "Please fill all required fields." : "সবগুলো ঘর পূরণ করুন।",
+        type: 'error'
+      });
+      return;
+    }
+
+    const newPayment: Payment = {
+      id: generateId(),
+      shopId: tempPayment.shopId,
+      amount: Number(tempPayment.amount),
+      method: tempPayment.method as any,
+      note: tempPayment.note,
+      timestamp: Date.now(),
+      date: todayIso
+    };
+
+    setPayments(prev => [newPayment, ...prev]);
+    setTempPayment({});
+    setShowPaymentModal(false);
+    setAlertInfo({
+      show: true,
+      title: lang === 'en' ? "Success" : "সফল",
+      message: lang === 'en' ? "Payment recorded successfully!" : "পেমেন্ট সফলভাবে রেকর্ড করা হয়েছে!",
+      type: 'success'
+    });
+  };
+
+  const saveTarget = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTarget?.type || !editingTarget?.period || !editingTarget?.value) return;
+
+    const newTarget: Target = {
+      id: editingTarget.id || generateId(),
+      type: editingTarget.type as 'Sales' | 'Visits',
+      period: editingTarget.period as 'Daily' | 'Monthly',
+      value: Number(editingTarget.value),
+      startDate: editingTarget.startDate || todayIso
+    };
+
+    if (editingTarget.id) {
+      setTargets(prev => prev.map(t => t.id === editingTarget.id ? newTarget : t));
+    } else {
+      setTargets(prev => [newTarget, ...prev]);
+    }
+    setIsEditingTarget(false);
+    setEditingTarget(null);
+  };
+
+  const deleteTarget = (id: string) => {
+    if (window.confirm(lang === 'en' ? 'Delete this target?' : 'টার্গেটটি মুছতে চান?')) {
+      setTargets(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const deletePayment = (id: string) => {
+    if (window.confirm(lang === 'en' ? 'Delete this payment record?' : 'পেমেন্ট রেকর্ডটি মুছতে চান?')) {
+      setPayments(prev => prev.filter(p => p.id !== id));
+    }
+  };
+
   const shareOrderSummary = (order: Order) => {
-    const itemsText = order.items.map(i => `- ${i.productName}: ${i.quantity} x ৳${i.price - (i.price * i.discount / 100)}`).join('\n');
+    const itemsText = order.items.map(i => `- ${i.productName}: ${i.quantity} x ৳${calculateFinalPrice(i.price, i.discount)}`).join('\n');
     const text = `*FieldPro Order Summary*\n\n*Shop:* ${order.shopName}\n*Date:* ${order.date}\n\n*Items:*\n${itemsText}\n\n*Total:* ৳${order.total}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -1177,7 +1446,7 @@ const App: React.FC = () => {
     const phone = order.dealerPhone || 'N/A';
     const note = order.dealerDescription || '';
     
-    const itemsList = order.items.map(i => `${i.productName} (x${i.quantity}) - ৳${i.price * i.quantity}`).join('\n');
+    const itemsList = order.items.map(i => `${i.productName} (x${i.quantity}) - ৳${calculateFinalPrice(i.price, i.discount) * i.quantity}`).join('\n');
     const reportText = `[ ${company} ]\n${proprietor}\n${address}\nPhone: ${phone}\n${note ? `Note: ${note}\n` : ''}\n----------------------------\nINVOICE: ${order.id.slice(-6)}\nDATE: ${order.date}\nCUSTOMER: ${order.shopName}\n----------------------------\nSUMMARY:\n${itemsList}\n----------------------------\nTOTAL: ৳${order.total}\n----------------------------\nSystem Generated Receipt`;
     
     const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
@@ -1190,12 +1459,91 @@ const App: React.FC = () => {
   };
 
   // Logic helper: Updates the rendering sequence to use a 2-column grid for paired shop metadata
+  const invoiceRef = useRef<HTMLDivElement>(null);
+
+  const downloadOrderPDF = async (order: Order) => {
+    if (!invoiceRef.current) return;
+    
+    try {
+      setAlertInfo({
+        show: true,
+        title: 'Generating PDF',
+        message: 'Please wait while we prepare your invoice...',
+        type: 'info'
+      });
+
+      // Capture the element exactly as it appears in the app
+      const canvas = await html2canvas(invoiceRef.current, {
+        scale: 3, // High quality
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        onclone: (clonedDoc, element) => {
+          const ignoreElements = clonedDoc.querySelectorAll('[data-pdf-ignore]');
+          ignoreElements.forEach(el => {
+            (el as HTMLElement).style.display = 'none';
+          });
+
+          if (element) {
+            // Maintain the app's look: rounded corners, padding, etc.
+            element.style.margin = '0';
+            element.style.boxShadow = 'none'; // Shadows can cause artifacts in PDF
+            element.style.transform = 'none';
+          }
+        }
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      
+      // Convert canvas dimensions to mm (1px ≈ 0.264583mm)
+      const pxToMm = 0.264583;
+      const widthMm = (canvas.width / 3) * pxToMm;
+      const heightMm = (canvas.height / 3) * pxToMm;
+
+      // Create PDF with custom size matching the invoice
+      const doc = new jsPDF({
+        orientation: widthMm > heightMm ? 'landscape' : 'portrait',
+        unit: 'mm',
+        format: [widthMm, heightMm]
+      });
+      
+      doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
+      
+      doc.save(`Invoice_${order.shopName}_${order.date}.pdf`);
+      
+      setAlertInfo({
+        show: true,
+        title: 'Success',
+        message: 'Invoice PDF generated successfully!',
+        type: 'success'
+      });
+    } catch (error) {
+      console.error('PDF Generation Error:', error);
+      setAlertInfo({
+        show: true,
+        title: 'Error',
+        message: 'Failed to generate Invoice PDF.',
+        type: 'error'
+      });
+    }
+  };
+
   const renderOrderDetail = (order: Order) => {
     const shop = shops.find(s => s.id === order.shopId);
     const area = areas.find(a => a.id === shop?.areaId);
 
     return (
-      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-4 animate-fadeIn text-left">
+      <div ref={invoiceRef} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-4 animate-fadeIn text-left">
+        <div data-pdf-ignore className="flex items-center justify-between gap-2">
+          <button onClick={() => setSelectedOrderForDetail(null)} className="p-2 bg-slate-50 rounded-full text-slate-400 active:scale-90 transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
+          <button 
+            onClick={() => downloadOrderPDF(order)}
+            className="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider active:scale-95 transition-all shadow-md shadow-indigo-100"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            Download PDF
+          </button>
+        </div>
         {/* Hierarchy 1, 2 & 3: Dealer Information Header */}
         <div className="text-center py-2 border-b border-slate-50 space-y-1.5">
           <div className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center mx-auto mb-0.5">
@@ -1212,31 +1560,31 @@ const App: React.FC = () => {
         </div>
 
         {/* Hierarchy 4: Shop Information (Algorithm: Grid-Based Paired Rendering) */}
-        <div className="bg-slate-50/80 p-3.5 rounded-2xl space-y-3">
+        <div className="bg-slate-50 p-4 rounded-2xl space-y-4">
           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 pb-0.5">Partner Information</p>
           <div className="grid grid-cols-2 gap-x-3 gap-y-3 text-[11px] font-bold text-slate-700">
             {/* Pair 1: Shop & Owner */}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter">দোকান:</span>
-              <span className="truncate">{order.shopName}</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter leading-none">দোকান:</span>
+              <span className="leading-normal break-words">{order.shopName}</span>
             </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter">মালিক:</span>
-              <span className="truncate">{shop?.ownerName || 'সুজন আলী'}</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter leading-none">মালিক:</span>
+              <span className="leading-normal break-words">{shop?.ownerName || 'সুজন আলী'}</span>
             </div>
             {/* Pair 2: Mobile & Address */}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter">মোবাইল:</span>
-              <span className="truncate">{shop?.phone || '০১৯৬৭৬'}</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter leading-none">মোবাইল:</span>
+              <span className="leading-normal break-words">{shop?.phone || '০১৯৬৭৬'}</span>
             </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter">ঠিকানা:</span>
-              <span className="truncate">{area?.name || 'কল্যানপুর'}</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter leading-none">ঠিকানা:</span>
+              <span className="leading-normal break-words">{area?.name || 'কল্যানপুর'}</span>
             </div>
             {/* Row 3: Sub-Area Spanning */}
-            <div className="col-span-2 flex flex-col gap-0.5 border-t border-slate-100/50 pt-1.5">
-              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter">সাব-এরিয়া:</span>
-              <span className="truncate">{shop?.subArea || 'N/A'}</span>
+            <div className="col-span-2 flex flex-col gap-1 border-t border-slate-100/50 pt-2">
+              <span className="text-slate-400 font-black uppercase text-[7px] tracking-tighter leading-none">সাব-এরিয়া:</span>
+              <span className="leading-normal break-words">{shop?.subArea || 'N/A'}</span>
             </div>
           </div>
         </div>
@@ -1247,19 +1595,52 @@ const App: React.FC = () => {
           <div className="space-y-1.5">
             {order.items.map((it, idx) => (
               <div key={idx} className="flex justify-between items-center text-[10px] font-medium text-slate-600">
-                <span>{it.productName} (x{it.quantity})</span>
-                <span className="font-bold text-slate-800">৳{it.price * it.quantity}</span>
+                <div className="flex flex-col">
+                  <span>{it.productName} (x{it.quantity})</span>
+                  {it.discount > 0 && <span className="text-[7px] text-rose-500 font-bold uppercase">Discount: {it.discount}%</span>}
+                </div>
+                <span className="font-bold text-slate-800">৳{calculateFinalPrice(it.price, it.discount) * it.quantity}</span>
               </div>
             ))}
           </div>
-          <div className="pt-2.5 border-t border-slate-100 flex justify-between items-end">
-            <span className="text-[9px] font-black text-slate-900 uppercase">Grand Total</span>
-            <span className="text-xl font-black text-indigo-600 leading-none">৳{order.total}</span>
+          <div className="pt-3 border-t border-slate-100 space-y-1">
+            <div className="flex justify-between items-center text-[9px] font-bold text-slate-400 uppercase">
+              <span>Subtotal (মোট)</span>
+              <span>৳{order.subtotal}</span>
+            </div>
+            {order.subtotal > order.total && (
+              <div className="flex justify-between items-center text-[9px] font-bold text-rose-500 uppercase">
+                <span>Discount (ছাড়)</span>
+                <span>-৳{Math.round(order.subtotal - order.total)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-end pt-1">
+              <span className="text-[9px] font-black text-slate-900 uppercase">Grand Total (সর্বমোট)</span>
+              <span className="text-xl font-black text-indigo-600 leading-tight">৳{order.total}</span>
+            </div>
           </div>
         </div>
 
+        {/* Replacement Summary - Simple Style */}
+        {order.replacements && order.replacements.length > 0 && (
+          <div className="space-y-2.5 px-0.5 pt-4 border-t border-slate-100">
+            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t('replacementSection')}</p>
+            <div className="space-y-2">
+              {order.replacements.map((r, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex justify-between items-center text-[10px] font-medium text-slate-600">
+                    <span>{r.productName} (x{r.quantity})</span>
+                    <span className="text-emerald-600 font-bold text-[8px] uppercase">Replaced (পরিবর্তিত)</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[8px] text-indigo-400 font-black italic uppercase tracking-widest text-center pt-1 opacity-70">*{t('noCharge')}</p>
+          </div>
+        )}
+
         {/* Actions Logic */}
-        <div className="grid grid-cols-2 gap-2.5 pt-3 border-t border-slate-50">
+        <div data-pdf-ignore className="grid grid-cols-2 gap-2.5 pt-3 border-t border-slate-50">
           <button onClick={() => handleDownloadPDF(order)} className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-2xl bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest active:scale-95 shadow-lg">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3" /></svg>
             Download
@@ -1339,11 +1720,11 @@ const App: React.FC = () => {
                       {lang === 'en' ? `Detected:` : `শনাক্ত:`}
                     </p>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-black text-slate-900 leading-tight truncate group-hover:text-emerald-700 transition-colors duration-300">{atShop.name}</h2>
+                      <h2 className="text-xl font-black text-slate-900 leading-tight group-hover:text-emerald-700 transition-colors duration-300">{atShop.name}</h2>
                       {isVisitedToday(atShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-sm border border-white/40"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}
                     </div>
-                    <div className="flex items-center gap-3 mt-1.5">
-                      <p className="text-sm font-bold text-slate-600 truncate">{atShop.ownerName}</p>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+                      <p className="text-sm font-bold text-slate-600">{atShop.ownerName}</p>
                       <div className="flex gap-1.5 flex-wrap">
                         <span className="bg-emerald-100 text-emerald-800 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-200">{activeAreas.find(a => a.id === atShop.areaId)?.name}</span>
                         {atShop.subArea && <span className="bg-white text-emerald-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-100">{atShop.subArea}</span>}
@@ -1399,11 +1780,11 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
-                          <p className="font-bold text-slate-800 text-xs leading-tight truncate flex items-center gap-1">{shop.name}</p>
+                          <p className="font-bold text-slate-800 text-xs leading-tight flex items-center gap-1">{shop.name}</p>
                           <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1 py-0.5 rounded-md flex-shrink-0">{Math.round((shop as any).distance)}m</span>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <p className="text-[9px] text-slate-500 truncate">{shop.ownerName}</p>
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                          <p className="text-[9px] text-slate-500">{shop.ownerName}</p>
                           <div className="flex gap-1 items-center overflow-hidden">
                             <span className="text-[7px] font-black text-slate-400 bg-slate-100 px-1 py-0.5 rounded uppercase flex-shrink-0">{activeAreas.find(a => a.id === shop.areaId)?.name}</span>
                             {shop.subArea && <span className="text-[7px] font-black text-slate-400 bg-slate-50 px-1 py-0.5 rounded uppercase truncate">{shop.subArea}</span>}
@@ -1455,10 +1836,10 @@ const App: React.FC = () => {
                    </div>
                    <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center gap-2">
-                      <h5 className="font-bold text-slate-900 text-sm leading-tight truncate group-hover:text-indigo-600 transition-colors">{shop.name}</h5>
+                      <h5 className="font-bold text-slate-900 text-sm leading-tight group-hover:text-indigo-600 transition-colors">{shop.name}</h5>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-[10px] font-medium text-slate-500 truncate">{shop.ownerName}</p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                      <p className="text-[10px] font-medium text-slate-500">{shop.ownerName}</p>
                       <div className="flex gap-1 flex-wrap">
                         <span className="text-[7px] font-black text-indigo-400 bg-indigo-50 px-1 py-0.5 rounded uppercase">{activeAreas.find(a => a.id === shop.areaId)?.name}</span>
                         {shop.subArea && <span className="text-[7px] font-black text-slate-400 bg-slate-100 px-1 py-0.5 rounded uppercase">{shop.subArea}</span>}
@@ -2006,7 +2387,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[4000] bg-white flex flex-col animate-fadeIn overflow-hidden">
           <header className="bg-white border-b border-slate-100 p-3 flex items-center gap-3 shrink-0 shadow-sm">
             <button 
-              onClick={() => { setShowOrderSystem(false); setOrderCart([]); setOrderShop(null); setSelectedOrderForDetail(null); }} 
+              onClick={() => { setShowOrderSystem(false); setOrderCart([]); setOrderReplacements([]); setOrderShop(null); setSelectedOrderForDetail(null); }} 
               className="p-1.5 text-slate-400 hover:text-indigo-600 transition-all active:scale-90"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
@@ -2095,8 +2476,36 @@ const App: React.FC = () => {
                         <span className="text-[7px] font-black text-slate-400 uppercase tracking-[0.1em]">Total Order Value</span>
                         <span className="text-lg font-black text-slate-900 leading-none">৳{cartSummary.total}</span>
                       </div>
-                      <button onClick={() => setOrderCart([])} className="text-[8px] font-black text-rose-400 uppercase border border-rose-100 px-2.5 py-1 rounded-md active:bg-rose-50">Reset Cart</button>
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowReplacementModal(true)} className="text-[8px] font-black text-indigo-600 uppercase border border-indigo-100 px-2.5 py-1 rounded-md active:bg-indigo-50 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                          {t('productReplacement')}
+                        </button>
+                        <button onClick={() => setOrderCart([])} className="text-[8px] font-black text-rose-400 uppercase border border-rose-100 px-2.5 py-1 rounded-md active:bg-rose-50">Reset Cart</button>
+                      </div>
                     </div>
+
+                    {orderReplacements.length > 0 && (
+                      <div className="bg-indigo-50/50 rounded-xl p-3 space-y-2 border border-indigo-100/50">
+                        <h6 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1.5">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3" /></svg>
+                          {t('replacementSection')}
+                        </h6>
+                        <div className="space-y-1.5">
+                          {orderReplacements.map(r => (
+                            <div key={r.id} className="flex justify-between items-center bg-white/60 p-2 rounded-lg border border-indigo-50">
+                              <div className="text-[9px] font-bold text-slate-600">
+                                <span className="text-indigo-600">{r.productName} ({r.quantity})</span>
+                              </div>
+                              <button onClick={() => removeReplacement(r.id)} className="text-rose-400 p-1 hover:bg-rose-50 rounded-md transition-all">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <button onClick={confirmOrder} className="w-full bg-indigo-600 text-white font-black py-2.5 rounded-lg shadow-xl shadow-indigo-100 transition-all active:scale-95 uppercase tracking-widest text-[9px]">Confirm Order</button>
                  </div>
                )}
@@ -2112,8 +2521,19 @@ const App: React.FC = () => {
                         <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">{order.date}</span>
                         <h5 className="font-black text-slate-800 text-xs">Order #{order.id.slice(-5)}</h5>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs font-black text-indigo-600 leading-none">৳{order.total}</span>
+                      <div className="text-right flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadOrderPDF(order);
+                            }}
+                            className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all active:scale-90"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                          </button>
+                          <span className="text-xs font-black text-indigo-600 leading-none">৳{order.total}</span>
+                        </div>
                         <p className="text-[7px] text-slate-400 font-bold">{order.items.length} items</p>
                       </div>
                     </div>
@@ -2121,7 +2541,7 @@ const App: React.FC = () => {
                        {order.items.slice(0, 3).map((it, idx) => (
                          <div key={idx} className="flex justify-between text-[9px] font-medium text-slate-600">
                            <span>{it.productName} x {it.quantity}</span>
-                           <span>৳{it.price * it.quantity}</span>
+                           <span>৳{calculateFinalPrice(it.price, it.discount) * it.quantity}</span>
                          </div>
                        ))}
                        {order.items.length > 3 && <p className="text-[8px] text-indigo-400 font-bold italic pt-0.5">+ {order.items.length - 3} more items</p>}
@@ -2131,6 +2551,60 @@ const App: React.FC = () => {
               ) : ( <div className="py-12 text-center text-slate-300 italic text-xs">No recent orders for this shop.</div> )}
             </div>
           )}
+        </div>
+      )}
+
+      {showReplacementModal && (
+        <div className="fixed inset-0 z-[5000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto">
+            <div className="px-5 py-4 bg-indigo-700 text-white flex justify-between items-center">
+              <div className="text-left">
+                <h3 className="text-sm font-black uppercase tracking-tight">{t('productReplacement')}</h3>
+                <p className="text-[8px] text-indigo-200 font-bold uppercase tracking-widest">{t('noCharge')}</p>
+              </div>
+              <button onClick={() => { setShowReplacementModal(false); setTempReplacement({}); }} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            <div className="p-5 space-y-4 text-left">
+              <div className="space-y-3">
+                {/* Replacement Product */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('replacedProduct')}</label>
+                  <select 
+                    className="w-full bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-xs"
+                    value={tempReplacement.productId || ''}
+                    onChange={e => setTempReplacement(prev => ({ ...prev, productId: e.target.value }))}
+                  >
+                    <option value="">{t('selectProduct')}</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.weight})</option>)}
+                  </select>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 shrink-0">{t('quantity')}</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-xs"
+                      value={tempReplacement.quantity || ''}
+                      onChange={e => setTempReplacement(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  onClick={addReplacement}
+                  className="flex-1 bg-indigo-600 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-95 uppercase tracking-widest text-[10px]"
+                >
+                  {t('addReplacement')}
+                </button>
+                <button 
+                  onClick={() => { setShowReplacementModal(false); setTempReplacement({}); }}
+                  className="flex-1 bg-slate-100 text-slate-600 font-bold py-3.5 rounded-2xl transition-all active:scale-95 uppercase tracking-widest text-[10px]"
+                >
+                  {t('cancel')}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2155,7 +2629,9 @@ const App: React.FC = () => {
                     else if (item.id === 'orders') { setOrderTab('taking'); setShowOrderSystem(true); }
                     else if (item.id === 'dealers') setShowDealersList(true);
                     else if (item.id === 'analytics') setShowAnalytics(true);
+                    else if (item.id === 'targets') setShowTargetVsAchievement(true);
                     else if (item.id === 'routes') setShowSmartRoute(true);
+                    else if (item.id === 'expenses') setShowExpensesModal(true);
                     setShowQuickAccess(false);
                   }}>
                   <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">{item.icon}</div>
@@ -2280,10 +2756,10 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[500] bg-slate-900/80 backdrop-blur-sm p-3 flex items-center justify-center overflow-y-auto">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl animate-scaleUp my-auto relative">
             <button onClick={() => setViewingShop(null)} className="absolute top-3 right-3 z-20 bg-black/20 backdrop-blur-md text-white p-1.5 rounded-full transition-all active:scale-90"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
-            <div className="h-48 w-full bg-slate-100 relative overflow-hidden">
+            <div className="h-48 w-full bg-slate-100 relative overflow-hidden cursor-pointer" onClick={() => viewingShop.photo && setViewingFullPhoto(viewingShop.photo)}>
               {viewingShop.photo ? <img src={viewingShop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-200"><svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent"></div>
-              <div className="absolute bottom-12 left-6 flex items-center gap-1.5"><span className="bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full border border-indigo-400/50 uppercase tracking-widest shadow-lg">{activeAreas.find(a => a.id === viewingShop.areaId)?.name}</span>{viewingShop.subArea && <span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">{viewingShop.subArea}</span>}<span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">Verified</span></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none"></div>
+              <div className="absolute bottom-12 left-6 flex items-center gap-1.5 pointer-events-none"><span className="bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full border border-indigo-400/50 uppercase tracking-widest shadow-lg">{activeAreas.find(a => a.id === viewingShop.areaId)?.name}</span>{viewingShop.subArea && <span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">{viewingShop.subArea}</span>}<span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">Verified</span></div>
             </div>
             <div className="bg-white px-6 pb-8 pt-12 -mt-10 rounded-t-[2.5rem] relative z-10 shadow-[0_-25px_50px_-12px_rgba(0,0,0,0.3)] text-left">
               <div className="flex justify-between items-start mb-4">
@@ -2296,7 +2772,30 @@ const App: React.FC = () => {
               <div className="space-y-4">
                  <div className="grid grid-cols-2 gap-3">
                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('ownerName')}</p><p className="text-sm font-bold text-slate-700 leading-tight truncate">{viewingShop.ownerName}</p></div>
-                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('mobile')}</p><p className="text-sm font-bold text-slate-700 leading-tight truncate">{viewingShop.phone}</p></div>
+                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('dues')}</p><p className={`text-sm font-black leading-tight truncate ${getShopBalance(viewingShop.id) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>৳{getShopBalance(viewingShop.id)}</p></div>
+                 </div>
+                 
+                 {/* Payment History Section - Replaced with a button to open a separate page/modal */}
+                 <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
+                   <div className="flex justify-between items-center px-1">
+                     <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t('paymentHistory')}</h4>
+                     <div className="flex gap-2">
+                       <button 
+                         onClick={() => setShowPaymentHistory(true)}
+                         className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-lg border border-indigo-100 active:scale-95 transition-all uppercase tracking-tighter flex items-center gap-1"
+                       >
+                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                         {t('viewHistory')}
+                       </button>
+                       <button 
+                         onClick={() => { setTempPayment({ shopId: viewingShop.id, method: 'Cash' }); setShowPaymentModal(true); }}
+                         className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-100 active:scale-95 transition-all uppercase tracking-tighter flex items-center gap-1"
+                       >
+                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                         {t('collectPayment')}
+                       </button>
+                     </div>
+                   </div>
                  </div>
                  <div className="flex gap-2">
                    <button onClick={() => toggleVisit(viewingShop.id)} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border shadow-sm active:scale-95 ${isVisitedToday(viewingShop.id) ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-slate-900 border-slate-800 text-white'}`}>{isVisitedToday(viewingShop.id) ? <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg> {t('unmarkVisited')}</> : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg> {t('markVisited')}</>}</button>
@@ -2305,6 +2804,91 @@ const App: React.FC = () => {
                  <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-inner h-32"><MiniMap location={viewingShop.location} label={viewingShop.name} /></div>
               </div>
               <button onClick={() => startNavigation(viewingShop)} className="w-full mt-6 bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-indigo-700 text-xs uppercase tracking-widest"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>{t('getDirections')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPaymentModal && (
+        <div className="fixed inset-0 z-[700] bg-slate-900/60 backdrop-blur-sm p-3 flex items-center justify-center overflow-y-auto">
+          <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto">
+            <div className="p-5 bg-emerald-600 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-black uppercase tracking-tight">{t('collectPayment')}</h3>
+                <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest">{viewingShop?.name}</p>
+              </div>
+              <button onClick={() => setShowPaymentModal(false)} className="bg-white/20 p-2 rounded-full transition-all active:scale-90">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-left">
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">{t('paymentAmount')}</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-black text-base">৳</span>
+                  <input 
+                    required 
+                    type="number" 
+                    placeholder="0.00"
+                    className="w-full bg-slate-50 rounded-xl pl-8 pr-4 py-2.5 text-lg font-black text-slate-900 border border-slate-200 focus:border-emerald-500 focus:ring-0 outline-none transition-all"
+                    value={tempPayment.amount || ''} 
+                    onChange={e => setTempPayment(prev => ({ ...prev, amount: Number(e.target.value) }))} 
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">{t('paymentMethod')}</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {['Cash', 'Cheque', 'MFS', 'Other'].map(method => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setTempPayment(prev => ({ ...prev, method: method as any }))}
+                      className={`py-2 rounded-lg text-[8px] font-black uppercase tracking-tighter border transition-all active:scale-95 ${tempPayment.method === method ? 'bg-emerald-600 border-emerald-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-400'}`}
+                    >
+                      {t(method.toLowerCase() as any)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">{t('paymentDate')}</label>
+                  <input 
+                    type="date" 
+                    className="w-full bg-slate-50 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-700 border border-slate-200 focus:border-emerald-500 outline-none"
+                    value={tempPayment.date || new Date().toISOString().split('T')[0]} 
+                    onChange={e => setTempPayment(prev => ({ ...prev, date: e.target.value }))} 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Note</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-slate-50 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-700 border border-slate-200 focus:border-emerald-500 outline-none"
+                    placeholder="Details..."
+                    value={tempPayment.note || ''} 
+                    onChange={e => setTempPayment(prev => ({ ...prev, note: e.target.value }))} 
+                  />
+                </div>
+              </div>
+
+              <div className="pt-1 flex gap-2">
+                <button 
+                  onClick={addPayment}
+                  className="flex-1 bg-emerald-600 text-white font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all active:scale-95"
+                >
+                  {t('addPayment')}
+                </button>
+                <button 
+                  onClick={() => setShowPaymentModal(false)}
+                  className="flex-1 bg-slate-100 text-slate-500 font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95"
+                >
+                  {t('cancel')}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2336,8 +2920,313 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {showPaymentHistory && viewingShop && (
+        <div className="fixed inset-0 z-[800] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+          <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto max-h-[80vh] flex flex-col">
+            <div className="px-4 py-3 bg-indigo-700 text-white flex justify-between items-center shrink-0">
+              <div className="text-left">
+                <h3 className="text-sm font-black uppercase tracking-tight">{t('paymentHistory')}</h3>
+                <p className="text-[8px] text-indigo-200 font-bold uppercase tracking-widest">{viewingShop.name}</p>
+              </div>
+              <button onClick={() => setShowPaymentHistory(false)} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5 scrollbar-hide">
+              {payments.filter(p => p.shopId === viewingShop.id).length > 0 ? (
+                payments.filter(p => p.shopId === viewingShop.id).map(payment => (
+                  <div key={payment.id} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 shadow-sm transition-all hover:shadow-md">
+                    <div className="text-left">
+                      <p className="text-[10px] font-black text-slate-800 leading-none mb-1">{payment.date}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[7px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full uppercase tracking-widest border border-indigo-100">{payment.method}</span>
+                        {payment.note && <span className="text-[7px] text-slate-400 font-medium italic truncate max-w-[80px]">{payment.note}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-emerald-600">৳{payment.amount}</span>
+                      <button onClick={() => deletePayment(payment.id)} className="p-1.5 bg-rose-50 text-rose-400 hover:bg-rose-100 hover:text-rose-600 rounded-lg transition-all active:scale-90">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-20 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                  <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                  </div>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">{t('noPayments')}</p>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-3 bg-slate-50 border-t border-slate-100 shrink-0">
+               <div className="flex justify-between items-center mb-2.5 px-1">
+                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Total Collected</span>
+                 <span className="text-sm font-black text-emerald-600">৳{payments.filter(p => p.shopId === viewingShop.id).reduce((sum, p) => sum + p.amount, 0)}</span>
+               </div>
+               <button 
+                 onClick={() => { setShowPaymentHistory(false); setTempPayment({ shopId: viewingShop.id, method: 'Cash' }); setShowPaymentModal(true); }}
+                 className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl shadow-lg shadow-indigo-100 flex items-center justify-center gap-1.5 transition-all active:scale-95 hover:bg-indigo-700 text-[9px] uppercase tracking-widest"
+               >
+                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                 {t('collectPayment')}
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTargetVsAchievement && (
+        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+          <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 bg-indigo-700 text-white flex justify-between items-center shrink-0">
+              <div className="text-left">
+                <h3 className="text-sm font-black uppercase tracking-tight">{t('targetVsAchievement')}</h3>
+                <p className="text-[8px] text-indigo-200 font-bold uppercase tracking-widest">Performance Tracking</p>
+              </div>
+              <button onClick={() => setShowTargetVsAchievement(false)} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-hide">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Targets</h4>
+                  <button 
+                    onClick={() => { setIsEditingTarget(true); setEditingTarget({ type: 'Sales', period: 'Daily', value: 0, startDate: todayIso }); }}
+                    className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                    Add Target
+                  </button>
+                </div>
+
+                {targets.length > 0 ? (
+                  <div className="space-y-3">
+                    {targets.map(target => {
+                      const achievement = getAchievement(target.type, target.period);
+                      const percentage = Math.min(100, Math.round((achievement / target.value) * 100));
+                      
+                      return (
+                        <div key={target.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3 relative group">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${target.type === 'Sales' ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-100 text-rose-600'}`}>
+                                  {target.type}
+                                </span>
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                                  {target.period}
+                                </span>
+                              </div>
+                              <h5 className="text-xs font-black text-slate-800">
+                                {target.type === 'Sales' ? `৳${target.value}` : `${target.value} Visits`}
+                              </h5>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => { setIsEditingTarget(true); setEditingTarget(target); }} className="p-1.5 text-slate-400 hover:text-indigo-600 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                              <button onClick={() => deleteTarget(target.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-[10px] font-bold">
+                              <span className="text-slate-500">Achievement: {target.type === 'Sales' ? `৳${achievement}` : `${achievement}`}</span>
+                              <span className={percentage >= 100 ? 'text-emerald-600' : 'text-indigo-600'}>{percentage}%</span>
+                            </div>
+                            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-1000 ${percentage >= 100 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-indigo-500'}`}
+                                style={{ width: `${percentage}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <p className="text-slate-400 text-xs italic">No targets set yet.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExpensesModal && (
+        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+          <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 bg-rose-600 text-white flex justify-between items-center shrink-0">
+              <div className="text-left">
+                <h3 className="text-sm font-black uppercase tracking-tight">{t('expenses')}</h3>
+                <p className="text-[8px] text-rose-200 font-bold uppercase tracking-widest">Expense Tracking</p>
+              </div>
+              <button onClick={() => setShowExpensesModal(false)} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-hide">
+              {/* Add Expense Form */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4 text-left">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">{t('addExpense')}</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseCategory')}</label>
+                    <select 
+                      value={tempExpense.category || ''} 
+                      onChange={(e) => setTempExpense(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
+                    >
+                      <option value="">Select</option>
+                      <option value="Fuel">{t('fuel')}</option>
+                      <option value="Food">{t('food')}</option>
+                      <option value="Maintenance">{t('maintenance')}</option>
+                      <option value="Others">{t('others')}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseAmount')}</label>
+                    <input 
+                      type="number" 
+                      placeholder="৳0"
+                      value={tempExpense.amount || ''} 
+                      onChange={(e) => setTempExpense(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseDescription')}</label>
+                  <input 
+                    type="text" 
+                    placeholder="Note..."
+                    value={tempExpense.description || ''} 
+                    onChange={(e) => setTempExpense(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
+                  />
+                </div>
+                <button 
+                  onClick={addExpense}
+                  className="w-full bg-rose-600 text-white font-black py-3 rounded-xl shadow-lg shadow-rose-100 active:scale-95 transition-all text-[10px] uppercase tracking-widest"
+                >
+                  {t('addExpense')}
+                </button>
+              </div>
+
+              {/* Expense List */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center px-1">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('totalExpenses')}</h4>
+                  <span className="text-sm font-black text-rose-600">৳{expenses.reduce((sum, e) => sum + e.amount, 0)}</span>
+                </div>
+
+                {expenses.length > 0 ? (
+                  <div className="space-y-2">
+                    {expenses.map(expense => (
+                      <div key={expense.id} className="bg-white p-3 rounded-xl border border-slate-100 flex justify-between items-center shadow-sm text-left">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-rose-50 rounded-lg flex items-center justify-center text-rose-600">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{t(expense.category.toLowerCase()) || expense.category}</p>
+                            <p className="text-[8px] text-slate-400 font-bold">{expense.date} • {expense.description || 'No note'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-black text-slate-700">৳{expense.amount}</span>
+                          <button onClick={() => deleteExpense(expense.id)} className="p-1.5 text-slate-300 hover:text-rose-500 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <p className="text-slate-400 text-xs italic">No expenses recorded yet.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isEditingTarget && (
+        <div className="fixed inset-0 z-[2000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto">
+            <div className="px-5 py-4 bg-indigo-700 text-white flex justify-between items-center">
+              <div className="text-left">
+                <h3 className="text-sm font-black uppercase tracking-tight">{editingTarget?.id ? 'Edit Target' : 'Add New Target'}</h3>
+                <p className="text-[8px] text-indigo-200 font-bold uppercase tracking-widest">Set your goals</p>
+              </div>
+              <button onClick={() => { setIsEditingTarget(false); setEditingTarget(null); }} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            <form onSubmit={saveTarget} className="p-5 space-y-4 text-left">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Sales', 'Visits'].map(type => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setEditingTarget(prev => ({ ...prev, type: type as any }))}
+                        className={`py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${editingTarget?.type === type ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Period</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Daily', 'Monthly'].map(period => (
+                      <button
+                        key={period}
+                        type="button"
+                        onClick={() => setEditingTarget(prev => ({ ...prev, period: period as any }))}
+                        className={`py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${editingTarget?.period === period ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
+                      >
+                        {period}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Value</label>
+                  <input
+                    required
+                    type="number"
+                    className="w-full bg-slate-50 rounded-xl px-4 py-3 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm"
+                    placeholder={editingTarget?.type === 'Sales' ? 'Enter amount in ৳' : 'Enter number of visits'}
+                    value={editingTarget?.value || ''}
+                    onChange={e => setEditingTarget(prev => ({ ...prev, value: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="flex-1 bg-indigo-600 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-95 uppercase tracking-widest text-[10px]">Save Target</button>
+                <button type="button" onClick={() => { setIsEditingTarget(false); setEditingTarget(null); }} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3.5 rounded-2xl transition-all active:scale-95 uppercase tracking-widest text-[10px]">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {!isInRideMode && !viewingRoute && !showCatalog && !viewingProduct && !showOrderSystem && !showDealersList && !showAnalytics && !showSmartRoute && <Navbar view={view} setView={setView} t={t} />}
 
+      {viewingFullPhoto && (
+        <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-fadeIn" onClick={() => setViewingFullPhoto(null)}>
+          <button onClick={() => setViewingFullPhoto(null)} className="absolute top-6 right-6 z-[6001] bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-all active:scale-90"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+          <img src={viewingFullPhoto} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-scaleUp" alt="Full view" />
+        </div>
+      )}
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes scaleUp { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
