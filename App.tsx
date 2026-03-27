@@ -2,7 +2,12 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Geolocation } from '@capacitor/geolocation';
+import { registerPlugin } from '@capacitor/core';
+import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight } from 'lucide-react';
+
+const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
 import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense } from './types';
 import { INITIAL_AREAS, INITIAL_SHOPS, TRANSLATIONS, DEMO_ROUTES } from './constants';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
@@ -308,7 +313,13 @@ const App: React.FC = () => {
 
   const todayIso = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  const [lang, setLang] = useState<'en' | 'bn'>('en');
+  const [lang, setLang] = useState<'en' | 'bn'>(() => {
+    return (localStorage.getItem('fieldpro_lang') as 'en' | 'bn') || 'en';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_lang', lang);
+  }, [lang]);
   const [shops, setShops] = useState<Shop[]>(() => {
     const saved = localStorage.getItem('fieldpro_shops');
     return saved ? JSON.parse(saved) : INITIAL_SHOPS;
@@ -347,12 +358,112 @@ const App: React.FC = () => {
     return saved ? Number(saved) : 20;
   });
 
-  const [view, setView] = useState<AppView>('Dashboard');
+  const [view, setView] = useState<AppView>(() => {
+    const saved = localStorage.getItem('fieldpro_view');
+    return (saved as AppView) || 'Dashboard';
+  });
   const [currentLocation, setCurrentLocation] = useState<GeoLocation | null>(null);
-  const [isTracking, setIsTracking] = useState(false);
-  const [activeRoute, setActiveRoute] = useState<SalesRoute | null>(null);
+  const [isTracking, setIsTracking] = useState(() => {
+    return localStorage.getItem('fieldpro_is_tracking') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_view', view);
+  }, [view]);
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_is_tracking', String(isTracking));
+  }, [isTracking]);
+  const wakeLockRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Logic: Background Tracking Persistence (Wake Lock & Silent Audio)
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      // Try Capacitor KeepAwake first if available
+      try {
+        if (isTracking) {
+          await KeepAwake.keepAwake();
+        } else {
+          await KeepAwake.allowSleep();
+        }
+      } catch (e) {
+        console.warn('Capacitor KeepAwake not available or failed:', e);
+      }
+
+      // Try Web Wake Lock API as fallback
+      if ('wakeLock' in navigator && isTracking) {
+        try {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        } catch (err: any) {
+          if (err.name === 'NotAllowedError' || err.message.includes('permissions policy')) {
+            console.warn('Wake Lock disallowed by policy. Using fallbacks (Audio/Capacitor).');
+          } else {
+            console.error('Wake Lock error:', err);
+          }
+        }
+      }
+    };
+
+    const playSilentAudio = () => {
+      if (isTracking) {
+        if (!audioRef.current) {
+          audioRef.current = new Audio('https://github.com/anars/blank-audio/raw/master/10-seconds-of-silence.mp3');
+          audioRef.current.loop = true;
+        }
+        audioRef.current.play().catch(e => console.warn('Audio play failed:', e));
+      } else if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+
+    if (isTracking) {
+      requestWakeLock();
+      playSilentAudio();
+    } else {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().then(() => {
+          wakeLockRef.current = null;
+        });
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isTracking) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLockRef.current) wakeLockRef.current.release();
+      if (audioRef.current) audioRef.current.pause();
+    };
+  }, [isTracking]);
+  const [activeRoute, setActiveRoute] = useState<SalesRoute | null>(() => {
+    const saved = localStorage.getItem('fieldpro_active_route');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedAreaId, setSelectedAreaId] = useState<string>('all');
+  const [selectedAreaId, setSelectedAreaId] = useState<string>(() => {
+    return localStorage.getItem('fieldpro_selected_area') || 'all';
+  });
+
+  useEffect(() => {
+    if (activeRoute) {
+      localStorage.setItem('fieldpro_active_route', JSON.stringify(activeRoute));
+    } else {
+      localStorage.removeItem('fieldpro_active_route');
+    }
+  }, [activeRoute]);
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_selected_area', selectedAreaId);
+  }, [selectedAreaId]);
   const [viewingRoute, setViewingRoute] = useState<SalesRoute | null>(null);
   const [showQuickAccess, setShowQuickAccess] = useState(false);
   const [isManagingCatalog, setIsManagingCatalog] = useState(false);
@@ -360,8 +471,25 @@ const App: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   
   // Logic Fix: Added state for Order detail and history toggling
-  const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
-  const [historyTab, setHistoryTab] = useState<'routes' | 'orders'>('routes');
+  const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(() => {
+    const saved = localStorage.getItem('fieldpro_selected_order_detail');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [historyTab, setHistoryTab] = useState<'routes' | 'orders'>(() => {
+    return (localStorage.getItem('fieldpro_history_tab') as 'routes' | 'orders') || 'routes';
+  });
+
+  useEffect(() => {
+    if (selectedOrderForDetail) {
+      localStorage.setItem('fieldpro_selected_order_detail', JSON.stringify(selectedOrderForDetail));
+    } else {
+      localStorage.removeItem('fieldpro_selected_order_detail');
+    }
+  }, [selectedOrderForDetail]);
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_history_tab', historyTab);
+  }, [historyTab]);
 
   // --- Kalman Filter Logic State ---
   const kalmanStateRef = useRef<{ lat: number; lng: number; variance: number }>({ lat: 0, lng: 0, variance: -1 });
@@ -383,9 +511,26 @@ const App: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const setupAppListeners = async () => {
+      try {
+        const { App } = await import('@capacitor/app');
+        App.addListener('appStateChange', ({ isActive }) => {
+          if (isActive && isTracking) {
+            // Re-trigger wake lock and other active states when app comes back
+            console.log('App became active, checking tracking state...');
+          }
+        });
+      } catch (e) {
+        console.warn('Capacitor App plugin not available:', e);
+      }
+    };
+    setupAppListeners();
+  }, [isTracking]);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
   const [editingDealer, setEditingDealer] = useState<Partial<Dealer> | null>(null);
   const [showDealersList, setShowDealersList] = useState(false);
+  const [showDailySummary, setShowDailySummary] = useState(false);
 
   const [showCatalog, setShowCatalog] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -393,9 +538,33 @@ const App: React.FC = () => {
   const [catalogSort, setCatalogSort] = useState<'name' | 'price_asc' | 'price_desc'>('name');
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   
-  const [showOrderSystem, setShowOrderSystem] = useState(false);
-  const [orderShop, setOrderShop] = useState<Shop | null>(null);
-  const [orderCart, setOrderCart] = useState<OrderItem[]>([]);
+  const [showOrderSystem, setShowOrderSystem] = useState(() => {
+    return localStorage.getItem('fieldpro_show_order_system') === 'true';
+  });
+  const [orderShop, setOrderShop] = useState<Shop | null>(() => {
+    const saved = localStorage.getItem('fieldpro_order_shop');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [orderCart, setOrderCart] = useState<OrderItem[]>(() => {
+    const saved = localStorage.getItem('fieldpro_order_cart');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_show_order_system', String(showOrderSystem));
+  }, [showOrderSystem]);
+
+  useEffect(() => {
+    if (orderShop) {
+      localStorage.setItem('fieldpro_order_shop', JSON.stringify(orderShop));
+    } else {
+      localStorage.removeItem('fieldpro_order_shop');
+    }
+  }, [orderShop]);
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_order_cart', JSON.stringify(orderCart));
+  }, [orderCart]);
   const [orderSearch, setOrderSearch] = useState('');
   const [orderTab, setOrderTab] = useState<'taking' | 'history'>('taking');
   const [orderReplacements, setOrderReplacements] = useState<ReplacementItem[]>([]);
@@ -792,16 +961,42 @@ const App: React.FC = () => {
   }, [shops, areas, routes, visits, products, orders, dealers, detectionRange, nearbyRange]);
 
   useEffect(() => {
-    let watchId: string | number | null = null;
-
-    const startTracking = async () => {
+    // Initial location fetch
+    const getInitialLocation = async () => {
       try {
+        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+        if (pos) {
+          const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
+          setCurrentLocation({ 
+            lat: smoothed.lat, 
+            lng: smoothed.lng,
+            heading: pos.coords.heading,
+            speed: pos.coords.speed
+          });
+        }
+      } catch (e) {
+        console.warn('Initial location fetch failed:', e);
+      }
+    };
+    getInitialLocation();
+
+    let watchId: string | number | null = null;
+    let backgroundWatchId: string | null = null;
+
+    const startLocationServices = async () => {
+      try {
+        // Request permissions
         try {
           const permissions = await Geolocation.checkPermissions();
           if (permissions.location !== 'granted') {
             await Geolocation.requestPermissions();
           }
+        } catch (e) {
+          console.warn('Permission check failed:', e);
+        }
 
+        // 1. Always start a standard Geolocation Watch for UI responsiveness while app is open
+        try {
           watchId = await Geolocation.watchPosition(
             { enableHighAccuracy: true, timeout: 10000 },
             (pos) => {
@@ -810,32 +1005,63 @@ const App: React.FC = () => {
             }
           );
         } catch (capError: any) {
-          if (capError.message?.includes('Not implemented') || !Geolocation) {
-            console.warn('Capacitor Geolocation not implemented in App.tsx, falling back to browser API');
-            watchId = navigator.geolocation.watchPosition(
-              (pos) => {
-                handlePositionUpdate({
-                  coords: {
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy,
-                    altitude: pos.coords.altitude,
-                    altitudeAccuracy: pos.coords.altitudeAccuracy,
-                    heading: pos.coords.heading,
-                    speed: pos.coords.speed
-                  },
-                  timestamp: pos.timestamp
-                } as any);
+          // Fallback to browser geolocation if Capacitor is not available or fails
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+              handlePositionUpdate({
+                coords: {
+                  latitude: pos.coords.latitude,
+                  longitude: pos.coords.longitude,
+                  accuracy: pos.coords.accuracy,
+                  heading: pos.coords.heading,
+                  speed: pos.coords.speed
+                },
+                timestamp: pos.timestamp
+              } as any);
+            },
+            (err) => console.error('Browser Geolocation error:', err),
+            { enableHighAccuracy: true, timeout: 10000 }
+          );
+        }
+
+        // 2. Persistent Background Geolocation (only if isTracking is true)
+        if (isTracking) {
+          try {
+            backgroundWatchId = await BackgroundGeolocation.addWatcher(
+              {
+                backgroundMessage: "FieldPro is tracking your sales route.",
+                backgroundTitle: "Tracking Active",
+                requestPermissions: true,
+                stale: false,
+                distanceFilter: 5
               },
-              (err) => console.error('Browser Geolocation error:', err),
-              { enableHighAccuracy: true, timeout: 10000 }
+              (location, error) => {
+                if (error) {
+                  if (error.code !== "NOT_AUTHORIZED") {
+                    console.error('Background Geolocation error:', error);
+                  }
+                  return;
+                }
+                if (location) {
+                  handlePositionUpdate({
+                    coords: {
+                      latitude: location.latitude,
+                      longitude: location.longitude,
+                      accuracy: location.accuracy,
+                      heading: location.bearing,
+                      speed: location.speed
+                    },
+                    timestamp: location.time
+                  } as any);
+                }
+              }
             );
-          } else {
-            throw capError;
+          } catch (bgError) {
+            console.warn('Background Geolocation not available:', bgError);
           }
         }
       } catch (err) {
-        console.error('Geolocation error:', err);
+        console.error('Location services setup error:', err);
       }
     };
 
@@ -901,7 +1127,7 @@ const App: React.FC = () => {
       }
     };
 
-    startTracking();
+    startLocationServices();
 
     return () => {
       if (watchId !== null) {
@@ -911,8 +1137,11 @@ const App: React.FC = () => {
           navigator.geolocation.clearWatch(watchId);
         }
       }
+      if (backgroundWatchId) {
+        BackgroundGeolocation.removeWatcher({ id: backgroundWatchId });
+      }
     };
-  }, []);
+  }, [isTracking]);
 
   const toggleTracking = () => {
     if (!isTracking) {
@@ -1273,6 +1502,21 @@ const App: React.FC = () => {
     }, 0);
     return { subtotal, total };
   }, [orderCart]);
+
+  const dailySummaryData = useMemo(() => {
+    const todayOrders = orders.filter(o => o.date === todayIso);
+    const todayVisits = visits.filter(v => v.date === todayIso);
+    const todayExpenses = expenses.filter(e => e.date === todayIso);
+    const todayPayments = payments.filter(p => p.date === todayIso);
+
+    const totalOrders = todayOrders.length;
+    const totalOrderAmount = todayOrders.reduce((acc, o) => acc + o.total, 0);
+    const totalVisits = todayVisits.length;
+    const totalExpenses = todayExpenses.reduce((acc, e) => acc + e.amount, 0);
+    const totalPayments = todayPayments.reduce((acc, p) => acc + p.amount, 0);
+
+    return { totalOrders, totalOrderAmount, totalVisits, totalExpenses, totalPayments };
+  }, [orders, visits, expenses, payments, todayIso]);
 
   const confirmOrder = () => {
     try {
@@ -1819,8 +2063,12 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2">
               <div className="relative flex-1"><input type="text" placeholder={t('search')} className="w-full bg-white rounded-xl py-2.5 pl-10 pr-4 text-xs shadow-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /><svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
               <div className="flex gap-1.5">
-                <button onClick={() => setIsManagingAreas(true)} className="bg-white text-slate-600 p-2.5 rounded-xl shadow-sm border border-slate-200 transition-all active:scale-95"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
-                <button onClick={initAddShop} className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-95"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 5a1 1 0 011-1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" /></svg></button>
+                <button onClick={() => setIsManagingAreas(true)} className="bg-white text-indigo-600 p-2.5 rounded-xl shadow-sm border border-indigo-100 transition-all active:scale-95 hover:bg-indigo-50">
+                  <MapPin className="w-5 h-5" />
+                </button>
+                <button onClick={initAddShop} className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-95 hover:bg-indigo-700">
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
             </div>
             <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
@@ -1852,10 +2100,8 @@ const App: React.FC = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                         </svg>
                       </button>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingShop(shop); setIsEditingShop(true); }} className="px-3 bg-slate-50 text-slate-400 py-1.5 rounded-lg">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingShop(shop); setIsEditingShop(true); }} className="px-3 bg-indigo-50 text-indigo-600 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -2627,6 +2873,7 @@ const App: React.FC = () => {
                 <button key={item.id} className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-white border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/10 transition-all active:scale-95 group shadow-sm" onClick={() => {
                     if (item.id === 'catalog') setShowCatalog(true);
                     else if (item.id === 'orders') { setOrderTab('taking'); setShowOrderSystem(true); }
+                    else if (item.id === 'summary') setShowDailySummary(true);
                     else if (item.id === 'dealers') setShowDealersList(true);
                     else if (item.id === 'analytics') setShowAnalytics(true);
                     else if (item.id === 'targets') setShowTargetVsAchievement(true);
@@ -2638,6 +2885,51 @@ const App: React.FC = () => {
                   <span className="text-[9px] font-black text-slate-700 uppercase tracking-widest text-center leading-tight">{t(item.key)}</span>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDailySummary && (
+        <div className="fixed inset-0 z-[3000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center">
+          <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">{t('dailySummary')}</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{todayIso}</p>
+                </div>
+                <button onClick={() => setShowDailySummary(false)} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-full transition-all active:scale-90 border border-slate-100">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                  <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">Total Visits</p>
+                  <p className="text-2xl font-black text-indigo-700">{dailySummaryData.totalVisits}</p>
+                </div>
+                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                  <p className="text-[10px] font-black text-emerald-400 uppercase mb-1">Total Orders</p>
+                  <p className="text-2xl font-black text-emerald-700">{dailySummaryData.totalOrders}</p>
+                </div>
+                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 col-span-2">
+                  <p className="text-[10px] font-black text-amber-500 uppercase mb-1">Total Order Amount</p>
+                  <p className="text-3xl font-black text-amber-700">৳{dailySummaryData.totalOrderAmount.toLocaleString()}</p>
+                </div>
+                <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
+                  <p className="text-[10px] font-black text-rose-400 uppercase mb-1">Total Expenses</p>
+                  <p className="text-2xl font-black text-rose-700">৳{dailySummaryData.totalExpenses.toLocaleString()}</p>
+                </div>
+                <div className="bg-sky-50 p-4 rounded-2xl border border-sky-100">
+                  <p className="text-[10px] font-black text-sky-400 uppercase mb-1">Payments Collected</p>
+                  <p className="text-2xl font-black text-sky-700">৳{dailySummaryData.totalPayments.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <button onClick={() => setShowDailySummary(false)} className="w-full mt-8 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-slate-200 transition-all active:scale-[0.98]">
+                Close Summary
+              </button>
             </div>
           </div>
         </div>
@@ -2978,106 +3270,110 @@ const App: React.FC = () => {
       )}
 
       {showTargetVsAchievement && (
-        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+        <div className="fixed inset-0 z-[3000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto max-h-[90vh] flex flex-col">
             <div className="px-5 py-4 bg-indigo-700 text-white flex justify-between items-center shrink-0">
               <div className="text-left">
                 <h3 className="text-sm font-black uppercase tracking-tight">{t('targetVsAchievement')}</h3>
                 <p className="text-[8px] text-indigo-200 font-bold uppercase tracking-widest">Performance Tracking</p>
               </div>
-              <button onClick={() => setShowTargetVsAchievement(false)} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+              <button onClick={() => setShowTargetVsAchievement(false)} className="transition-all active:scale-90 p-2 bg-white/10 hover:bg-white/20 rounded-xl">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-hide">
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Targets</h4>
-                  <button 
-                    onClick={() => { setIsEditingTarget(true); setEditingTarget({ type: 'Sales', period: 'Daily', value: 0, startDate: todayIso }); }}
-                    className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                    Add Target
-                  </button>
-                </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+              <div className="flex justify-between items-center px-1">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Targets</h4>
+                <button 
+                  onClick={() => { setIsEditingTarget(true); setEditingTarget({ type: 'Sales', period: 'Daily', value: 0, startDate: todayIso }); }}
+                  className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all active:scale-95"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add Target
+                </button>
+              </div>
 
-                {targets.length > 0 ? (
-                  <div className="space-y-3">
-                    {targets.map(target => {
-                      const achievement = getAchievement(target.type, target.period);
-                      const percentage = Math.min(100, Math.round((achievement / target.value) * 100));
-                      
-                      return (
-                        <div key={target.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3 relative group">
-                          <div className="flex justify-between items-start">
+              {targets.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3">
+                  {targets.map(target => {
+                    const achievement = getAchievement(target.type, target.period);
+                    const percentage = Math.min(100, Math.round((achievement / target.value) * 100));
+                    
+                    return (
+                      <div key={target.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3 relative group">
+                        <div className="flex justify-between items-start">
+                          <div className="flex gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${target.type === 'Sales' ? 'bg-indigo-50 text-indigo-600' : 'bg-rose-50 text-rose-600'}`}>
+                              {target.type === 'Sales' ? <DollarSign className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+                            </div>
                             <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${target.type === 'Sales' ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-100 text-rose-600'}`}>
-                                  {target.type}
-                                </span>
+                              <div className="flex items-center gap-2 mb-0.5">
                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                                  {target.period}
+                                  {target.period} {target.type}
                                 </span>
                               </div>
-                              <h5 className="text-xs font-black text-slate-800">
-                                {target.type === 'Sales' ? `৳${target.value}` : `${target.value} Visits`}
+                              <h5 className="text-sm font-black text-slate-800">
+                                {target.type === 'Sales' ? `৳${target.value.toLocaleString()}` : `${target.value} Visits`}
                               </h5>
                             </div>
-                            <div className="flex gap-2">
-                              <button onClick={() => { setIsEditingTarget(true); setEditingTarget(target); }} className="p-1.5 text-slate-400 hover:text-indigo-600 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                              <button onClick={() => deleteTarget(target.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                            </div>
                           </div>
-
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between text-[10px] font-bold">
-                              <span className="text-slate-500">Achievement: {target.type === 'Sales' ? `৳${achievement}` : `${achievement}`}</span>
-                              <span className={percentage >= 100 ? 'text-emerald-600' : 'text-indigo-600'}>{percentage}%</span>
-                            </div>
-                            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full transition-all duration-1000 ${percentage >= 100 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-indigo-500'}`}
-                                style={{ width: `${percentage}%` }}
-                              ></div>
-                            </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <button onClick={() => { setIsEditingTarget(true); setEditingTarget(target); }} className="p-1.5 text-slate-400 hover:text-indigo-600 transition-all"><Pencil className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => deleteTarget(target.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    <p className="text-slate-400 text-xs italic">No targets set yet.</p>
-                  </div>
-                )}
-              </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-slate-400">Achieved: <span className="text-slate-700">{target.type === 'Sales' ? `৳${achievement.toLocaleString()}` : `${achievement}`}</span></span>
+                            <span className={percentage >= 100 ? 'text-emerald-600' : 'text-indigo-600'}>{percentage}%</span>
+                          </div>
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full transition-all duration-1000 ${percentage >= 100 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-indigo-500'}`}
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-10 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">No targets set yet</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {showExpensesModal && (
-        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
+        <div className="fixed inset-0 z-[3000] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center items-center overflow-y-auto">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-scaleUp my-auto max-h-[90vh] flex flex-col">
             <div className="px-5 py-4 bg-rose-600 text-white flex justify-between items-center shrink-0">
               <div className="text-left">
                 <h3 className="text-sm font-black uppercase tracking-tight">{t('expenses')}</h3>
                 <p className="text-[8px] text-rose-200 font-bold uppercase tracking-widest">Expense Tracking</p>
               </div>
-              <button onClick={() => setShowExpensesModal(false)} className="transition-all active:scale-90 p-1.5 hover:bg-white/10 rounded-lg"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+              <button onClick={() => setShowExpensesModal(false)} className="transition-all active:scale-90 p-2 bg-white/10 hover:bg-white/20 rounded-xl">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-hide">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
               {/* Add Expense Form */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4 text-left">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">{t('addExpense')}</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3 text-left">
+                <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{t('addExpense')}</h4>
+                <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseCategory')}</label>
+                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseCategory')}</label>
                     <select 
                       value={tempExpense.category || ''} 
                       onChange={(e) => setTempExpense(prev => ({ ...prev, category: e.target.value }))}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
                     >
                       <option value="">Select</option>
                       <option value="Fuel">{t('fuel')}</option>
@@ -3087,48 +3383,48 @@ const App: React.FC = () => {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseAmount')}</label>
+                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseAmount')}</label>
                     <input 
                       type="number" 
                       placeholder="৳0"
                       value={tempExpense.amount || ''} 
                       onChange={(e) => setTempExpense(prev => ({ ...prev, amount: Number(e.target.value) }))}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
                     />
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseDescription')}</label>
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('expenseDescription')}</label>
                   <input 
                     type="text" 
                     placeholder="Note..."
                     value={tempExpense.description || ''} 
                     onChange={(e) => setTempExpense(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all"
                   />
                 </div>
                 <button 
                   onClick={addExpense}
-                  className="w-full bg-rose-600 text-white font-black py-3 rounded-xl shadow-lg shadow-rose-100 active:scale-95 transition-all text-[10px] uppercase tracking-widest"
+                  className="w-full bg-rose-600 text-white font-black py-2.5 rounded-xl shadow-md shadow-rose-100 active:scale-[0.98] transition-all text-[9px] uppercase tracking-widest"
                 >
                   {t('addExpense')}
                 </button>
               </div>
 
               {/* Expense List */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="flex justify-between items-center px-1">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('totalExpenses')}</h4>
-                  <span className="text-sm font-black text-rose-600">৳{expenses.reduce((sum, e) => sum + e.amount, 0)}</span>
+                  <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t('totalExpenses')}</h4>
+                  <span className="text-xs font-black text-rose-600">৳{expenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString()}</span>
                 </div>
 
                 {expenses.length > 0 ? (
                   <div className="space-y-2">
-                    {expenses.map(expense => (
-                      <div key={expense.id} className="bg-white p-3 rounded-xl border border-slate-100 flex justify-between items-center shadow-sm text-left">
+                    {expenses.slice().reverse().map(expense => (
+                      <div key={expense.id} className="bg-white p-3 rounded-2xl border border-slate-100 flex justify-between items-center shadow-sm text-left group">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-rose-50 rounded-lg flex items-center justify-center text-rose-600">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          <div className="w-8 h-8 bg-rose-50 rounded-xl flex items-center justify-center text-rose-600">
+                            <DollarSign className="w-4 h-4" />
                           </div>
                           <div>
                             <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{t(expense.category.toLowerCase()) || expense.category}</p>
@@ -3136,15 +3432,15 @@ const App: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-xs font-black text-slate-700">৳{expense.amount}</span>
-                          <button onClick={() => deleteExpense(expense.id)} className="p-1.5 text-slate-300 hover:text-rose-500 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                          <span className="text-xs font-black text-slate-700">৳{expense.amount.toLocaleString()}</span>
+                          <button onClick={() => deleteExpense(expense.id)} className="p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    <p className="text-slate-400 text-xs italic">No expenses recorded yet.</p>
+                  <div className="py-10 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                    <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest italic">No expenses recorded</p>
                   </div>
                 )}
               </div>

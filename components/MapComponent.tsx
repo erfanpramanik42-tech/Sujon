@@ -508,8 +508,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         .leaflet-container { background: #f8fafc; height: 100%; width: 100%; }
         .user-dot-marker { z-index: 2000 !important; }
         .user-dot-container { position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: transform 0.1s linear; }
-        .user-dot { width: 14px; height: 14px; background: #4f46e5; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(79, 70, 229, 0.4); z-index: 2; }
-        .user-arrow { position: absolute; top: -4px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #4f46e5; z-index: 1; }
+        .user-dot { width: 10px; height: 10px; background: #4f46e5; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(79, 70, 229, 0.4); z-index: 2; }
+        .user-arrow { position: absolute; top: -3px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid #4f46e5; z-index: 1; }
         .custom-tooltip { background: rgba(15, 23, 42, 0.85) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; padding: 3px 6px !important; box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important; }
         .shop-marker-label { text-align: center; line-height: 1; }
         .shop-name { color: white; font-weight: 800; font-size: 10px; margin-bottom: 1px; }
