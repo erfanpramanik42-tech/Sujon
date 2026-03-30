@@ -24,6 +24,7 @@ const init = async () => {
     if (!(window as any).L) {
       await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=");
       await loadScript("https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js");
+      await loadScript("https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js");
     }
 
     const rootElement = document.getElementById('root');

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Shop, GeoLocation, SalesRoute, Area } from '../types';
+import { Shop, GeoLocation, SalesRoute, Area, Place } from '../types';
 import { calculateDistance } from '../services/locationService';
 
 interface NavStep {
@@ -12,22 +12,32 @@ interface NavStep {
 interface MapComponentProps {
   currentLocation: GeoLocation | null;
   shops: Shop[];
+  places: Place[];
   areas: Area[];
   activeRoute?: SalesRoute | null;
   navigationTarget?: Shop | null;
+  playbackLocation?: GeoLocation | null;
+  showPlaybackControls?: boolean;
+  onTogglePlaybackControls?: () => void;
   onShopClick?: (shop: Shop) => void;
   onStopNavigation?: () => void;
+  visitedShopIds?: string[];
   t: (key: string) => string;
 }
 
 export const MapComponent: React.FC<MapComponentProps> = ({ 
   currentLocation, 
   shops, 
+  places,
   areas,
   activeRoute, 
   navigationTarget,
+  playbackLocation,
+  showPlaybackControls,
+  onTogglePlaybackControls,
   onShopClick,
   onStopNavigation,
+  visitedShopIds = [],
   t
 }) => {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -37,6 +47,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   const routeLineRef = useRef<any>(null);
   const roadNavLineRef = useRef<any>(null);
   const userMarkerRef = useRef<any>(null);
+  const playbackMarkerRef = useRef<any>(null);
+  const clusterGroupRef = useRef<any>(null);
   const layersRef = useRef<{ street: any; satellite: any }>({ street: null, satellite: null });
   
   const [isFollowing, setIsFollowing] = useState(true);
@@ -257,15 +269,19 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     markersRef.current = [];
 
     const isHistoryView = !!activeRoute?.endTime;
-    if (isHistoryView) return;
+    
+    // Show all shops as requested by user
+    const displayShops = shops;
 
-    shops.forEach(shop => {
+    displayShops.forEach(shop => {
       const area = areas.find(a => a.id === shop.areaId);
+      const isVisited = visitedShopIds.includes(shop.id);
+      
       const marker = L.circleMarker([shop.location.lat, shop.location.lng], {
-        radius: 6,
-        fillColor: '#4f46e5',
+        radius: isVisited ? 4 : 2.5,
+        fillColor: isVisited ? '#10b981' : '#4f46e5',
         color: '#fff',
-        weight: 1.5,
+        weight: 1,
         fillOpacity: 1
       }).addTo(leafletMap.current);
       
@@ -284,7 +300,24 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       marker.on('click', () => onShopClick?.(shop));
       markersRef.current.push(marker);
     });
-  }, [shops, areas, onShopClick, activeRoute?.id, !!activeRoute?.endTime]);
+
+    // Show all places
+    places.filter(p => !p.isArchived).forEach(place => {
+      const marker = L.marker([place.location.lat, place.location.lng], {
+        icon: L.divIcon({
+          className: 'place-marker',
+          html: `<div class="place-marker-container">
+            <div class="place-marker-dot"></div>
+            <div class="place-marker-label">${place.name}</div>
+          </div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
+        })
+      }).addTo(leafletMap.current);
+      
+      markersRef.current.push(marker);
+    });
+  }, [shops, places, areas, onShopClick, activeRoute?.id, !!activeRoute?.endTime]);
 
   useEffect(() => {
     if (!leafletMap.current || !currentLocation) return;
@@ -293,7 +326,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
 
     if (!userMarkerRef.current) {
       userMarkerRef.current = L.marker([currentLocation.lat, currentLocation.lng], {
-        zIndexOffset: 3000,
+        zIndexOffset: 10000,
         icon: L.divIcon({
           className: 'user-dot-marker',
           html: `<div class="user-dot-container active-ping"><div class="user-dot"></div><div class="user-arrow"></div></div>`,
@@ -327,6 +360,39 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       });
     }
   }, [currentLocation, isFollowing, heading, isHeadingUp]);
+
+  useEffect(() => {
+    if (!leafletMap.current) return;
+    // @ts-ignore
+    const L = window.L;
+
+    if (!playbackLocation) {
+      if (playbackMarkerRef.current) {
+        playbackMarkerRef.current.remove();
+        playbackMarkerRef.current = null;
+      }
+      return;
+    }
+
+    if (!playbackMarkerRef.current) {
+      playbackMarkerRef.current = L.marker([playbackLocation.lat, playbackLocation.lng], {
+        zIndexOffset: 11000,
+        icon: L.divIcon({
+          className: 'playback-dot-marker',
+          html: `<div class="playback-dot-container"><div class="playback-dot"></div></div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        })
+      }).addTo(leafletMap.current);
+    } else {
+      playbackMarkerRef.current.setLatLng([playbackLocation.lat, playbackLocation.lng]);
+    }
+
+    // Auto-pan to playback location if it's outside view
+    if (leafletMap.current && !leafletMap.current.getBounds().contains([playbackLocation.lat, playbackLocation.lng])) {
+      leafletMap.current.panTo([playbackLocation.lat, playbackLocation.lng], { animate: true });
+    }
+  }, [playbackLocation]);
 
   useEffect(() => {
     if (!leafletMap.current || !activeRoute) {
@@ -500,6 +566,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         </div>
       )}
       <div className="absolute top-6 right-6 z-20 flex flex-col gap-2">
+        {onTogglePlaybackControls && (
+          <button onClick={onTogglePlaybackControls} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${showPlaybackControls ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </button>
+        )}
         <button onClick={toggleMapType} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${mapType === 'satellite' ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
         <button onClick={toggleFollow} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isFollowing ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
         <button onClick={toggleHeadingUp} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isHeadingUp ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ transform: `rotate(${isHeadingUp ? -heading : 0}deg)` }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button>
@@ -510,10 +581,12 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         .user-dot-container { position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: transform 0.1s linear; }
         .user-dot { width: 10px; height: 10px; background: #4f46e5; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(79, 70, 229, 0.4); z-index: 2; }
         .user-arrow { position: absolute; top: -3px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid #4f46e5; z-index: 1; }
-        .custom-tooltip { background: rgba(15, 23, 42, 0.85) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; padding: 3px 6px !important; box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important; }
+        .custom-tooltip { background: rgba(15, 23, 42, 0.8) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 3px !important; padding: 1px 3px !important; box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important; }
         .shop-marker-label { text-align: center; line-height: 1; }
-        .shop-name { color: white; font-weight: 800; font-size: 10px; margin-bottom: 1px; }
-        .shop-area { color: #94a3b8; font-weight: 600; font-size: 8px; text-transform: uppercase; }
+        .shop-name { color: white; font-weight: 800; font-size: 7px; margin-bottom: 0.2px; }
+        .shop-area { color: #94a3b8; font-weight: 600; font-size: 5px; text-transform: uppercase; }
+        .playback-dot-container { position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+        .playback-dot { width: 12px; height: 12px; background: #f59e0b; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(245, 158, 11, 0.6); z-index: 2; }
         .timeline-label-minimal { display: flex; flex-direction: column; align-items: center; }
         .place-name { color: white; font-weight: 700; font-size: 11px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
         .timeline-tooltip-clean { 
@@ -541,6 +614,32 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         }
         .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        
+        .place-marker-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          pointer-events: none;
+        }
+        .place-marker-dot {
+          width: 4px;
+          height: 4px;
+          background: #0ea5e9;
+          border: 1px solid white;
+          border-radius: 50%;
+          box-shadow: 0 0 2px rgba(14, 165, 233, 0.5);
+        }
+        .place-marker-label {
+          margin-top: 1px;
+          background: rgba(15, 23, 42, 0.6);
+          color: white;
+          font-size: 6px;
+          font-weight: 700;
+          padding: 0.5px 2px;
+          border-radius: 2px;
+          white-space: nowrap;
+          pointer-events: none;
+        }
       `}</style>
     </div>
   );

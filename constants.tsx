@@ -1,4 +1,4 @@
-import { Area, Translations, Shop, SalesRoute } from './types';
+import { Area, Translations, Shop, SalesRoute, Product } from './types';
 
 export const INITIAL_AREAS: Area[] = [
   { id: '1', name: 'Kallyanpur', assignedDay: 'শনিবার' },
@@ -83,6 +83,50 @@ export const DEMO_ROUTES: SalesRoute[] = [
         timestamp: Date.now() - 172800000 + 3600000 
       }
     ]
+  }
+];
+
+export const INITIAL_PRODUCTS: Product[] = [
+  {
+    id: 'p1',
+    name: 'Fresh Milk 1L',
+    weight: '1L',
+    price: 90,
+    stock: 100,
+    category: 'Dairy',
+    status: 'Active',
+    createdAt: Date.now()
+  },
+  {
+    id: 'p2',
+    name: 'Brown Bread 400g',
+    weight: '400g',
+    price: 55,
+    stock: 50,
+    category: 'Bakery',
+    status: 'Active',
+    createdAt: Date.now()
+  },
+  {
+    id: 'p3',
+    name: 'Organic Eggs (12pcs)',
+    weight: '1 Dozen',
+    price: 150,
+    stock: 30,
+    category: 'Poultry',
+    status: 'Active',
+    createdAt: Date.now()
+  },
+  {
+    id: 'p4',
+    name: 'Pure Honey 500g',
+    weight: '500g',
+    price: 450,
+    discount: 10,
+    stock: 20,
+    category: 'Groceries',
+    status: 'Active',
+    createdAt: Date.now()
   }
 ];
 
@@ -181,5 +225,41 @@ export const TRANSLATIONS: Translations = {
   fuel: { en: 'Fuel', bn: 'জ্বালানি' },
   food: { en: 'Food', bn: 'খাবার' },
   maintenance: { en: 'Maintenance', bn: 'রক্ষণাবেক্ষণ' },
-  others: { en: 'Others', bn: 'অন্যান্য' }
+  others: { en: 'Others', bn: 'অন্যান্য' },
+  userProfile: { en: 'User Profile', bn: 'ইউজার প্রোফাইল' },
+  userName: { en: 'User Name', bn: 'ব্যবহারকারীর নাম' },
+  employeeId: { en: 'Employee ID', bn: 'এমপ্লয়ি আইডি' },
+  designation: { en: 'Designation', bn: 'পদবী' },
+  phoneNumber: { en: 'Phone Number', bn: 'ফোন নাম্বার' },
+  editProfile: { en: 'Edit Profile', bn: 'প্রোফাইল সম্পাদনা' },
+  darkMode: { en: 'Dark Mode', bn: 'ডার্ক মোড' },
+  lightMode: { en: 'Light Mode', bn: 'লাইট মোড' },
+  theme: { en: 'Theme', bn: 'থিম' },
+  notificationSettings: { en: 'Notification Settings', bn: 'নোটিফিকেশন সেটিংস' },
+  orderConfirmation: { en: 'Order Confirmation', bn: 'অর্ডার কনফার্মেশন' },
+  targetReminder: { en: 'Target Reminder', bn: 'টার্গেট রিমাইন্ডার' },
+  newShopDetection: { en: 'New Shop Detection', bn: 'নতুন শপ ডিটেকশন' },
+  pushNotifications: { en: 'Push Notifications', bn: 'পুশ নোটিফিকেশন' },
+  birthday: { en: 'Birthday', bn: 'জন্মদিন' },
+  anniversary: { en: 'Anniversary', bn: 'প্রতিষ্ঠাবার্ষিকী' },
+  specialDays: { en: 'Special Days', bn: 'বিশেষ দিনসমূহ' },
+  upcomingSpecialDays: { en: 'Upcoming Special Days', bn: 'আসন্ন বিশেষ দিনসমূহ' },
+  celebratingToday: { en: 'Celebrating Today', bn: 'আজকের উদযাপন' },
+  manageShops: { en: 'Manage Shops', bn: 'দোকান ব্যবস্থাপনা' },
+  deleteShop: { en: 'Delete Shop', bn: 'দোকান মুছুন' },
+  confirmDeleteShop: { en: 'Are you sure you want to delete this shop?', bn: 'আপনি কি নিশ্চিত যে আপনি এই দোকানটি মুছতে চান?' },
+  activePartner: { en: 'Active Partner', bn: 'অ্যাক্টিভ পার্টনার' },
+  inactivePartner: { en: 'Inactive Partner', bn: 'ইনঅ্যাক্টিভ পার্টনার' },
+  partnerStatus: { en: 'Partner Status', bn: 'পার্টনার স্ট্যাটাস' },
+  routePlayback: { en: 'Route Playback', bn: 'রুট প্লেব্যাক' },
+  play: { en: 'Play', bn: 'চালু করুন' },
+  pause: { en: 'Pause', bn: 'থামান' },
+  speed: { en: 'Speed', bn: 'গতি' },
+  replay: { en: 'Replay', bn: 'আবার দেখুন' },
+  managePlaces: { en: 'Manage Places', bn: 'স্থান ব্যবস্থাপনা' },
+  addPlace: { en: 'Add Place', bn: 'স্থান যোগ করুন' },
+  editPlace: { en: 'Edit Place', bn: 'স্থান সম্পাদনা' },
+  placeName: { en: 'Place Name', bn: 'স্থানের নাম' },
+  deletePlace: { en: 'Delete Place', bn: 'স্থান মুছুন' },
+  confirmDeletePlace: { en: 'Are you sure you want to delete this place?', bn: 'আপনি কি নিশ্চিত যে আপনি এই স্থানটি মুছতে চান?' }
 };

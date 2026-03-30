@@ -1,20 +1,26 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { Component, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Geolocation } from '@capacitor/geolocation';
 import { registerPlugin } from '@capacitor/core';
-import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight } from 'lucide-react';
+import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight, Play, Pause, Navigation } from 'lucide-react';
 
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
-import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense } from './types';
-import { INITIAL_AREAS, INITIAL_SHOPS, TRANSLATIONS, DEMO_ROUTES } from './constants';
+import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense, UserProfile, NotificationPreferences, Place } from './types';
+import { INITIAL_AREAS, INITIAL_SHOPS, INITIAL_PRODUCTS, TRANSLATIONS, DEMO_ROUTES } from './constants';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
 import { MapComponent } from './components/MapComponent';
 import { NotificationToast } from './components/NotificationToast';
 import { VisualAnalytics } from './components/VisualAnalytics';
 import { SmartRouteOptimizer } from './components/SmartRouteOptimizer';
+
+declare global {
+  interface Window {
+    Capacitor: any;
+  }
+}
 
 // --- Helper: Translation Wrapper ---
 const getT = (key: string, lang: 'en' | 'bn') => TRANSLATIONS[key]?.[lang] || key;
@@ -239,7 +245,7 @@ const MiniMap = ({ location, label }: { location: GeoLocation; label?: string })
 
 // --- Sub-Component: Header ---
 const Header = ({ title, location, lang, onLangToggle, isTracking, onTrackingToggle, onKebabToggle, showKebab, t }: any) => (
-  <header className="sticky top-0 z-50 bg-indigo-700 text-white p-3 sm:p-4 shadow-lg">
+  <header className="sticky top-0 z-50 bg-indigo-700 dark:bg-indigo-900 text-white p-3 sm:p-4 shadow-lg transition-colors">
     <div className="flex justify-between items-center max-w-4xl mx-auto gap-2">
       <div className="min-w-0">
         <h1 className="text-base sm:text-xl font-bold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">{title}</h1>
@@ -282,15 +288,15 @@ const Header = ({ title, location, lang, onLangToggle, isTracking, onTrackingTog
 
 // --- Sub-Component: Navbar ---
 const Navbar = ({ view, setView, t }: any) => (
-  <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 pb-safe-area z-[100]">
+  <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe-area z-[100] transition-colors">
     <div className="flex justify-around items-center h-14 max-w-4xl mx-auto px-2">
       {(['Dashboard', 'Map', 'Shops', 'History', 'Settings'] as AppView[]).map(v => (
         <button 
           key={v}
           onClick={() => setView(v)}
-          className={`flex flex-col items-center gap-0.5 transition-colors ${view === v ? 'text-indigo-600' : 'text-slate-400'}`}
+          className={`flex flex-col items-center gap-0.5 transition-colors ${view === v ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`}
         >
-          <div className={`p-0.5 rounded-lg ${view === v ? 'bg-indigo-50' : ''}`}>
+          <div className={`p-0.5 rounded-lg transition-colors ${view === v ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}`}>
             {v === 'Dashboard' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 00-1.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>}
             {v === 'Map' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 5.293L14 1.586v12.828l2.293 2.293A1 1 0 0018 16V6a1 1 0 00-.293-.707z" clipRule="evenodd" /></svg>}
             {v === 'Shops' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>}
@@ -303,6 +309,57 @@ const Navbar = ({ view, setView, t }: any) => (
     </div>
   </nav>
 );
+
+
+// --- Helper: Error Boundary ---
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+class ErrorBoundary extends Component<any, any> {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 text-center">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 max-w-sm w-full space-y-4">
+            <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <h2 className="text-xl font-black text-slate-800">Something went wrong</h2>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed">The application encountered an unexpected error. We've logged the details and are working to fix it.</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl shadow-lg shadow-indigo-100 active:scale-95 transition-all uppercase tracking-widest text-[10px]"
+            >
+              Reload Application
+            </button>
+            {process.env.NODE_ENV === 'development' && (
+              <pre className="mt-4 p-3 bg-slate-900 text-rose-400 text-[8px] text-left overflow-auto rounded-lg max-h-32 font-mono">
+                {this.state.error?.toString()}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (this as any).props.children;
+  }
+}
 
 // --- Main App Component ---
 const App: React.FC = () => {
@@ -318,35 +375,189 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_lang', lang);
+    try {
+      localStorage.setItem('fieldpro_lang', lang);
+    } catch (e) {
+      console.warn("Failed to save lang to localStorage:", e);
+    }
   }, [lang]);
-  const [shops, setShops] = useState<Shop[]>(() => {
-    const saved = localStorage.getItem('fieldpro_shops');
-    return saved ? JSON.parse(saved) : INITIAL_SHOPS;
+
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('fieldpro_theme') === 'dark';
   });
+
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(() => {
+    try {
+      const saved = localStorage.getItem('fieldpro_notification_prefs');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          orderConfirmation: parsed.orderConfirmation ?? true,
+          targetReminder: parsed.targetReminder ?? true,
+          newShopDetection: parsed.newShopDetection ?? true
+        };
+      }
+    } catch (e) {
+      console.error("Error loading notification prefs:", e);
+    }
+    return {
+      orderConfirmation: true,
+      targetReminder: true,
+      newShopDetection: true
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_notification_prefs', JSON.stringify(notificationPrefs));
+  }, [notificationPrefs]);
+
+  useEffect(() => {
+    localStorage.setItem('fieldpro_theme', isDarkMode ? 'dark' : 'light');
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
+
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('fieldpro_user_profile');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error("Error loading user profile:", e);
+    }
+    return { name: '', employeeId: '', designation: '', phone: '' };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fieldpro_user_profile', JSON.stringify(userProfile));
+    } catch (e) {
+      console.warn("Failed to save user profile to localStorage:", e);
+    }
+  }, [userProfile]);
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [tempProfile, setTempProfile] = useState<UserProfile>(userProfile);
+
+  const userPhotoRef = useRef<HTMLInputElement>(null);
+  const handleUserProfilePhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setTempProfile(prev => ({ ...prev, photo: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
+  const [shops, setShops] = useState<Shop[]>(() => {
+    try {
+      const saved = localStorage.getItem('fieldpro_shops');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : INITIAL_SHOPS;
+      }
+    } catch (e) {
+      console.error("Error loading shops:", e);
+    }
+    return INITIAL_SHOPS;
+  });
+  const [places, setPlaces] = useState<Place[]>(() => {
+    try {
+      const saved = localStorage.getItem('fieldpro_places');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading places:", e);
+    }
+    return [];
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('fieldpro_places', JSON.stringify(places));
+    } catch (e) {
+      console.warn("Failed to save places to localStorage:", e);
+    }
+  }, [places]);
+
   const [areas, setAreas] = useState<Area[]>(() => {
-    const saved = localStorage.getItem('fieldpro_areas');
-    return saved ? JSON.parse(saved) : INITIAL_AREAS;
+    try {
+      const saved = localStorage.getItem('fieldpro_areas');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : INITIAL_AREAS;
+      }
+    } catch (e) {
+      console.error("Error loading areas:", e);
+    }
+    return INITIAL_AREAS;
   });
   const [routes, setRoutes] = useState<SalesRoute[]>(() => {
-    const saved = localStorage.getItem('fieldpro_routes');
-    return saved ? JSON.parse(saved) : DEMO_ROUTES;
+    try {
+      const saved = localStorage.getItem('fieldpro_routes');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : DEMO_ROUTES;
+      }
+    } catch (e) {
+      console.error("Error loading routes:", e);
+    }
+    return DEMO_ROUTES;
   });
   const [visits, setVisits] = useState<Visit[]>(() => {
-    const saved = localStorage.getItem('fieldpro_visits');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_visits');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading visits:", e);
+    }
+    return [];
   });
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('fieldpro_products');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_products');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : INITIAL_PRODUCTS;
+      }
+    } catch (e) {
+      console.error("Error loading products:", e);
+    }
+    return INITIAL_PRODUCTS;
   });
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('fieldpro_orders');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_orders');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading orders:", e);
+    }
+    return [];
   });
   const [dealers, setDealers] = useState<Dealer[]>(() => {
-    const saved = localStorage.getItem('fieldpro_dealers');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_dealers');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading dealers:", e);
+    }
+    return [];
   });
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
@@ -368,11 +579,19 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_view', view);
+    try {
+      localStorage.setItem('fieldpro_view', view);
+    } catch (e) {
+      console.warn("Failed to save view to localStorage:", e);
+    }
   }, [view]);
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_is_tracking', String(isTracking));
+    try {
+      localStorage.setItem('fieldpro_is_tracking', String(isTracking));
+    } catch (e) {
+      console.warn("Failed to save tracking state to localStorage:", e);
+    }
   }, [isTracking]);
   const wakeLockRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -445,8 +664,13 @@ const App: React.FC = () => {
     };
   }, [isTracking]);
   const [activeRoute, setActiveRoute] = useState<SalesRoute | null>(() => {
-    const saved = localStorage.getItem('fieldpro_active_route');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('fieldpro_active_route');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error("Error loading active route:", e);
+      return null;
+    }
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAreaId, setSelectedAreaId] = useState<string>(() => {
@@ -454,42 +678,97 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    if (activeRoute) {
-      localStorage.setItem('fieldpro_active_route', JSON.stringify(activeRoute));
-    } else {
-      localStorage.removeItem('fieldpro_active_route');
+    try {
+      if (activeRoute) {
+        localStorage.setItem('fieldpro_active_route', JSON.stringify(activeRoute));
+      } else {
+        localStorage.removeItem('fieldpro_active_route');
+      }
+    } catch (e) {
+      console.warn("Failed to save active route to localStorage:", e);
     }
   }, [activeRoute]);
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_selected_area', selectedAreaId);
+    try {
+      localStorage.setItem('fieldpro_selected_area', selectedAreaId);
+    } catch (e) {
+      console.warn("Failed to save selected area to localStorage:", e);
+    }
   }, [selectedAreaId]);
   const [viewingRoute, setViewingRoute] = useState<SalesRoute | null>(null);
+  const [isPlaybackPlaying, setIsPlaybackPlaying] = useState(false);
+  const [playbackIndex, setPlaybackIndex] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [showPlaybackControls, setShowPlaybackControls] = useState(false);
   const [showQuickAccess, setShowQuickAccess] = useState(false);
   const [isManagingCatalog, setIsManagingCatalog] = useState(false);
+  const [isManagingShops, setIsManagingShops] = useState(false);
+  const [isManagingPlaces, setIsManagingPlaces] = useState(false);
   const [isEditingProduct, setIsEditingProduct] = useState(false);
+  const [isEditingPlace, setIsEditingPlace] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
+  const [editingPlace, setEditingPlace] = useState<Partial<Place> | null>(null);
   
   // Logic Fix: Added state for Order detail and history toggling
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(() => {
-    const saved = localStorage.getItem('fieldpro_selected_order_detail');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('fieldpro_selected_order_detail');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error("Error loading selected order detail:", e);
+      return null;
+    }
   });
   const [historyTab, setHistoryTab] = useState<'routes' | 'orders'>(() => {
     return (localStorage.getItem('fieldpro_history_tab') as 'routes' | 'orders') || 'routes';
   });
 
   useEffect(() => {
-    if (selectedOrderForDetail) {
-      localStorage.setItem('fieldpro_selected_order_detail', JSON.stringify(selectedOrderForDetail));
-    } else {
-      localStorage.removeItem('fieldpro_selected_order_detail');
+    try {
+      if (selectedOrderForDetail) {
+        localStorage.setItem('fieldpro_selected_order_detail', JSON.stringify(selectedOrderForDetail));
+      } else {
+        localStorage.removeItem('fieldpro_selected_order_detail');
+      }
+    } catch (e) {
+      console.warn("Failed to save selected order detail to localStorage:", e);
     }
   }, [selectedOrderForDetail]);
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_history_tab', historyTab);
+    try {
+      localStorage.setItem('fieldpro_history_tab', historyTab);
+    } catch (e) {
+      console.warn("Failed to save history tab to localStorage:", e);
+    }
   }, [historyTab]);
+
+  // --- Route Playback Logic ---
+  useEffect(() => {
+    let interval: any;
+    if (isPlaybackPlaying && viewingRoute && viewingRoute.path.length > 0) {
+      interval = setInterval(() => {
+        setPlaybackIndex((prev) => {
+          if (prev >= viewingRoute.path.length - 1) {
+            setIsPlaybackPlaying(false);
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, 1000 / playbackSpeed);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaybackPlaying, viewingRoute, playbackSpeed]);
+
+  useEffect(() => {
+    if (!viewingRoute) {
+      setIsPlaybackPlaying(false);
+      setPlaybackIndex(0);
+      setPlaybackSpeed(1);
+      setShowPlaybackControls(false);
+    }
+  }, [viewingRoute]);
 
   // --- Kalman Filter Logic State ---
   const kalmanStateRef = useRef<{ lat: number; lng: number; variance: number }>({ lat: 0, lng: 0, variance: -1 });
@@ -542,28 +821,56 @@ const App: React.FC = () => {
     return localStorage.getItem('fieldpro_show_order_system') === 'true';
   });
   const [orderShop, setOrderShop] = useState<Shop | null>(() => {
-    const saved = localStorage.getItem('fieldpro_order_shop');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('fieldpro_order_shop');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return (typeof parsed === 'object' && parsed !== null && 'id' in parsed) ? parsed : null;
+      }
+    } catch (e) {
+      console.error("Error loading order shop:", e);
+    }
+    return null;
   });
   const [orderCart, setOrderCart] = useState<OrderItem[]>(() => {
-    const saved = localStorage.getItem('fieldpro_order_cart');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_order_cart');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading order cart:", e);
+    }
+    return [];
   });
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_show_order_system', String(showOrderSystem));
+    try {
+      localStorage.setItem('fieldpro_show_order_system', String(showOrderSystem));
+    } catch (e) {
+      console.warn("Failed to save show order system to localStorage:", e);
+    }
   }, [showOrderSystem]);
 
   useEffect(() => {
-    if (orderShop) {
-      localStorage.setItem('fieldpro_order_shop', JSON.stringify(orderShop));
-    } else {
-      localStorage.removeItem('fieldpro_order_shop');
+    try {
+      if (orderShop) {
+        localStorage.setItem('fieldpro_order_shop', JSON.stringify(orderShop));
+      } else {
+        localStorage.removeItem('fieldpro_order_shop');
+      }
+    } catch (e) {
+      console.warn("Failed to save order shop to localStorage:", e);
     }
   }, [orderShop]);
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_order_cart', JSON.stringify(orderCart));
+    try {
+      localStorage.setItem('fieldpro_order_cart', JSON.stringify(orderCart));
+    } catch (e) {
+      console.warn("Failed to save order cart to localStorage:", e);
+    }
   }, [orderCart]);
   const [orderSearch, setOrderSearch] = useState('');
   const [orderTab, setOrderTab] = useState<'taking' | 'history'>('taking');
@@ -572,15 +879,27 @@ const App: React.FC = () => {
   const [tempReplacement, setTempReplacement] = useState<Partial<ReplacementItem>>({});
 
   const [payments, setPayments] = useState<Payment[]>(() => {
-    const saved = localStorage.getItem('fieldpro_payments');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_payments');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading payments:", e);
+    }
+    return [];
   });
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [tempPayment, setTempPayment] = useState<Partial<Payment>>({});
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_payments', JSON.stringify(payments));
+    try {
+      localStorage.setItem('fieldpro_payments', JSON.stringify(payments));
+    } catch (e) {
+      console.warn("Failed to save payments to localStorage:", e);
+    }
   }, [payments]);
 
   const getShopBalance = useCallback((shopId: string) => {
@@ -595,14 +914,26 @@ const App: React.FC = () => {
   const [showSmartRoute, setShowSmartRoute] = useState(false);
   const [showTargetVsAchievement, setShowTargetVsAchievement] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const saved = localStorage.getItem('fieldpro_expenses');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_expenses');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading expenses:", e);
+    }
+    return [];
   });
   const [showExpensesModal, setShowExpensesModal] = useState(false);
   const [tempExpense, setTempExpense] = useState<Partial<Expense>>({});
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_expenses', JSON.stringify(expenses));
+    try {
+      localStorage.setItem('fieldpro_expenses', JSON.stringify(expenses));
+    } catch (e) {
+      console.warn("Failed to save expenses to localStorage:", e);
+    }
   }, [expenses]);
 
   const addExpense = () => {
@@ -624,14 +955,26 @@ const App: React.FC = () => {
   };
 
   const [targets, setTargets] = useState<Target[]>(() => {
-    const saved = localStorage.getItem('fieldpro_targets');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldpro_targets');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading targets:", e);
+    }
+    return [];
   });
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Partial<Target> | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_targets', JSON.stringify(targets));
+    try {
+      localStorage.setItem('fieldpro_targets', JSON.stringify(targets));
+    } catch (e) {
+      console.warn("Failed to save targets to localStorage:", e);
+    }
   }, [targets]);
 
   const getAchievement = useCallback((type: 'Sales' | 'Visits', period: 'Daily' | 'Monthly') => {
@@ -752,6 +1095,7 @@ const App: React.FC = () => {
   const activeAreas = useMemo(() => areas.filter(a => !a.isArchived), [areas]);
   const activeRoutes = useMemo(() => routes.filter(r => !r.isArchived), [routes]);
   const activeShops = useMemo(() => shops.filter(s => !s.isArchived && activeAreas.some(a => a.id === s.areaId)), [shops, activeAreas]);
+  const activePlaces = useMemo(() => places.filter(p => !p.isArchived), [places]);
   
   useEffect(() => {
     if (viewingShop) {
@@ -901,6 +1245,40 @@ const App: React.FC = () => {
     return visits.some(v => v.shopId === shopId && v.date === todayIso);
   }, [visits, todayIso]);
 
+  const isSpecialDayNear = useCallback((dateString: string | undefined) => {
+    if (!dateString) return false;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const specialDate = new Date(dateString);
+    
+    const thisYear = now.getFullYear();
+    const dateThisYear = new Date(thisYear, specialDate.getMonth(), specialDate.getDate());
+    const datePrevYear = new Date(thisYear - 1, specialDate.getMonth(), specialDate.getDate());
+    const dateNextYear = new Date(thisYear + 1, specialDate.getMonth(), specialDate.getDate());
+    
+    const diffDays = (d: Date) => Math.abs(d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    
+    return diffDays(dateThisYear) <= 7 || diffDays(datePrevYear) <= 7 || diffDays(dateNextYear) <= 7;
+  }, []);
+
+  const getSpecialDayShops = useCallback(() => {
+    const today = new Date();
+    const month = today.getMonth();
+    const day = today.getDate();
+
+    return activeShops.filter(shop => {
+      if (shop.birthday) {
+        const bday = new Date(shop.birthday);
+        if (bday.getMonth() === month && bday.getDate() === day) return true;
+      }
+      if (shop.anniversary) {
+        const anniv = new Date(shop.anniversary);
+        if (anniv.getMonth() === month && anniv.getDate() === day) return true;
+      }
+      return false;
+    });
+  }, [activeShops]);
+
   const toggleVisit = (shopId: string) => {
     setVisits(prev => {
       const exists = prev.some(v => v.shopId === shopId && v.date === todayIso);
@@ -949,15 +1327,20 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('fieldpro_shops', JSON.stringify(shops));
-    localStorage.setItem('fieldpro_areas', JSON.stringify(areas));
-    localStorage.setItem('fieldpro_routes', JSON.stringify(routes));
-    localStorage.setItem('fieldpro_visits', JSON.stringify(visits));
-    localStorage.setItem('fieldpro_products', JSON.stringify(products));
-    localStorage.setItem('fieldpro_orders', JSON.stringify(orders));
-    localStorage.setItem('fieldpro_dealers', JSON.stringify(dealers));
-    localStorage.setItem('fieldpro_range', String(detectionRange));
-    localStorage.setItem('fieldpro_nearby_range', String(nearbyRange));
+    try {
+      localStorage.setItem('fieldpro_shops', JSON.stringify(shops));
+      localStorage.setItem('fieldpro_areas', JSON.stringify(areas));
+      localStorage.setItem('fieldpro_routes', JSON.stringify(routes));
+      localStorage.setItem('fieldpro_visits', JSON.stringify(visits));
+      localStorage.setItem('fieldpro_products', JSON.stringify(products));
+      localStorage.setItem('fieldpro_orders', JSON.stringify(orders));
+      localStorage.setItem('fieldpro_dealers', JSON.stringify(dealers));
+      localStorage.setItem('fieldpro_places', JSON.stringify(places));
+      localStorage.setItem('fieldpro_range', String(detectionRange));
+      localStorage.setItem('fieldpro_nearby_range', String(nearbyRange));
+    } catch (e) {
+      console.warn("Failed to save data to localStorage:", e);
+    }
   }, [shops, areas, routes, visits, products, orders, dealers, detectionRange, nearbyRange]);
 
   useEffect(() => {
@@ -1236,7 +1619,9 @@ const App: React.FC = () => {
       areaId: editingShop.areaId || (activeAreas.length > 0 ? activeAreas[0].id : ''),
       location: finalLocData, 
       createdAt: editingShop.createdAt || Date.now(),
-      isArchived: false
+      isArchived: false,
+      birthday: editingShop.birthday,
+      anniversary: editingShop.anniversary
     };
     if (editingShop.id) {
       setShops(prev => prev.map(s => s.id === editingShop.id ? finalShop : s));
@@ -1255,7 +1640,12 @@ const App: React.FC = () => {
       a.name.toLowerCase() === name.toLowerCase() && a.assignedDay === newAreaDay
     );
     if (isDuplicate) {
-      alert(lang === 'en' ? "Area already exists for this day." : "এই দিনের জন্য এই এলাকাটি ইতিমধ্যে বিদ্যমান।");
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Duplicate Area" : "এলাকা ইতিমধ্যে বিদ্যমান",
+        message: lang === 'en' ? "Area already exists for this day." : "এই দিনের জন্য এই এলাকাটি ইতিমধ্যে বিদ্যমান।",
+        type: 'error'
+      });
       return;
     }
     const newArea: Area = { 
@@ -1280,7 +1670,14 @@ const App: React.FC = () => {
         lng: Number(pos.coords.longitude)
       };
       setEditingShop(prev => ({ ...prev, location: validatedLoc }));
-    } catch (err) { alert("GPS retrieval failed."); }
+    } catch (err) { 
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "GPS Error" : "GPS ত্রুটি",
+        message: lang === 'en' ? "GPS retrieval failed." : "জিপিএস তথ্য পেতে ব্যর্থ হয়েছে।",
+        type: 'error'
+      });
+    }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1330,6 +1727,52 @@ const App: React.FC = () => {
     }
   }, [t]);
 
+  const deleteShop = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(t('confirmDeleteShop'))) {
+      setShops(prev => prev.map(s => s.id === id ? { ...s, isArchived: true } : s));
+      setAlertInfo({ show: true, message: 'Shop deleted successfully', type: 'success', title: 'Deleted' });
+    }
+  }, [t]);
+
+  const deletePlace = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(t('confirmDeletePlace'))) {
+      setPlaces(prev => prev.map(p => p.id === id ? { ...p, isArchived: true } : p));
+      setAlertInfo({ show: true, message: 'Place deleted successfully', type: 'success', title: 'Deleted' });
+    }
+  }, [t]);
+
+  const savePlace = useCallback((place: Partial<Place>) => {
+    if (!place.name || !place.location) return;
+    
+    if (place.id) {
+      setPlaces(prev => prev.map(p => p.id === place.id ? { ...p, ...place } as Place : p));
+    } else {
+      const newPlace: Place = {
+        id: generateId(),
+        name: place.name,
+        description: place.description || '',
+        location: place.location,
+        createdAt: Date.now()
+      };
+      setPlaces(prev => [...prev, newPlace]);
+    }
+    setIsEditingPlace(false);
+    setEditingPlace(null);
+    setAlertInfo({ show: true, message: 'Place saved successfully', type: 'success', title: 'Saved' });
+  }, []);
+
+  const toggleShopStatus = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShops(prev => prev.map(shop => 
+      shop.id === id 
+        ? { ...shop, status: shop.status === 'Inactive' ? 'Active' : 'Inactive' } 
+        : shop
+    ));
+    setAlertInfo({ show: true, message: 'Shop status updated', type: 'success', title: 'Updated' });
+  }, []);
+
   const handleProductPhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -1347,7 +1790,12 @@ const App: React.FC = () => {
     const address = editingDealer.address?.trim();
     const phone = editingDealer.phone?.trim();
     if (!companyName || !dealerName || !phone) {
-      alert("Please fill in required fields.");
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Missing Fields" : "তথ্য অসম্পূর্ণ",
+        message: lang === 'en' ? "Please fill in required fields." : "দয়া করে প্রয়োজনীয় তথ্যগুলো পূরণ করুন।",
+        type: 'error'
+      });
       return;
     }
     const finalDealer: Dealer = {
@@ -1368,7 +1816,12 @@ const App: React.FC = () => {
     });
     setIsEditingDealer(false);
     setEditingDealer(null);
-    alert(lang === 'en' ? "Dealer saved successfully!" : "ডিলার তথ্য সংরক্ষিত হয়েছে!");
+    setAlertInfo({
+      show: true,
+      title: lang === 'en' ? "Success" : "সফল",
+      message: lang === 'en' ? "Dealer saved successfully!" : "ডিলার তথ্য সংরক্ষিত হয়েছে!",
+      type: 'success'
+    });
   }, [editingDealer, lang]);
 
   const deleteDealer = useCallback((id: string, e: React.MouseEvent) => {
@@ -1448,8 +1901,20 @@ const App: React.FC = () => {
         if (importedData.products) setProducts(mergeById(products, importedData.products));
         if (importedData.orders) setOrders(mergeById(orders, importedData.orders));
         if (importedData.dealers) setDealers(mergeById(dealers, importedData.dealers));
-        alert(lang === 'en' ? "Import successful!" : "ইম্পোর্ট সফল হয়েছে!");
-      } catch (err: any) { alert("Import failed."); }
+        setAlertInfo({
+          show: true,
+          title: lang === 'en' ? "Success" : "সফল",
+          message: lang === 'en' ? "Import successful!" : "ইম্পোর্ট সফল হয়েছে!",
+          type: 'success'
+        });
+      } catch (err: any) { 
+        setAlertInfo({
+          show: true,
+          title: lang === 'en' ? "Error" : "ত্রুটি",
+          message: lang === 'en' ? "Import failed: Invalid file structure." : "ইম্পোর্ট ব্যর্থ হয়েছে: ভুল ফাইল ফরম্যাট।",
+          type: 'error'
+        });
+      }
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsText(file);
@@ -1753,7 +2218,30 @@ const App: React.FC = () => {
       
       doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
       
-      doc.save(`Invoice_${order.shopName}_${order.date}.pdf`);
+      const fileName = `Invoice_${order.shopName}_${order.date.replace(/\//g, '-')}.pdf`;
+
+      // Capacitor specific download logic
+      if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        const { Share } = await import('@capacitor/share');
+        
+        const pdfBase64 = doc.output('datauristring').split(',')[1];
+        
+        const savedFile = await Filesystem.writeFile({
+          path: fileName,
+          data: pdfBase64,
+          directory: Directory.Cache
+        });
+
+        await Share.share({
+          title: 'Invoice PDF',
+          text: 'Sharing your invoice PDF',
+          url: savedFile.uri,
+          dialogTitle: 'Share Invoice'
+        });
+      } else {
+        doc.save(fileName);
+      }
       
       setAlertInfo({
         show: true,
@@ -1899,7 +2387,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen ${isInRideMode ? 'h-screen pb-0' : 'pb-24'} flex flex-col overflow-hidden`}>
+    <div className={`min-h-screen ${isInRideMode ? 'h-screen pb-0' : 'pb-24'} flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors`}>
       {!isInRideMode && !viewingRoute && !showCatalog && !viewingProduct && !showOrderSystem && !showDealersList && !showAnalytics && !showSmartRoute && (
         <Header title={t('appTitle')} location={currentLocation} lang={lang} 
           onLangToggle={() => setLang(l => l === 'en' ? 'bn' : 'en')}
@@ -1918,34 +2406,34 @@ const App: React.FC = () => {
         onClose={() => setAlertInfo(prev => ({ ...prev, show: false }))}
       />
 
-      <main className={`flex-1 flex flex-col ${isInRideMode || viewingRoute || viewingProduct || showOrderSystem || showDealersList || showAnalytics || showSmartRoute ? 'h-full p-0 overflow-hidden' : 'p-3 max-w-4xl mx-auto w-full'} relative`}>
+      <main className={`flex-1 flex flex-col ${isInRideMode || viewingRoute || viewingProduct || showOrderSystem || showDealersList || showAnalytics || showSmartRoute ? 'h-full p-0 overflow-hidden' : 'p-3 max-w-4xl mx-auto w-full'} bg-slate-50 dark:bg-slate-950 relative`}>
         {view === 'Dashboard' && (
           <div className="space-y-4 animate-fadeIn flex-1 overflow-y-auto pb-4 scrollbar-hide">
             <div className="grid grid-cols-2 gap-3 flex-shrink-0">
-              <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                <p className="text-slate-500 text-[9px] font-bold uppercase tracking-tight">{lang === 'en' ? "Today's Shops" : "আজকের মোট দোকান"}</p>
-                <p className="text-2xl font-black text-indigo-600">{todayShopsCount}</p>
+              <div className="bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <p className="text-slate-500 dark:text-slate-400 text-[9px] font-bold uppercase tracking-tight">{lang === 'en' ? "Today's Shops" : "আজকের মোট দোকান"}</p>
+                <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{todayShopsCount}</p>
               </div>
-              <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                <p className="text-slate-500 text-[9px] font-bold uppercase tracking-tight">{lang === 'en' ? "Visited Today" : "আজকের ভিজিট"}</p>
-                <p className="text-2xl font-black text-rose-500">{visitedTodayCount}</p>
+              <div className="bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <p className="text-slate-500 dark:text-slate-400 text-[9px] font-bold uppercase tracking-tight">{lang === 'en' ? "Visited Today" : "আজকের ভিজিট"}</p>
+                <p className="text-2xl font-black text-rose-500 dark:text-rose-400">{visitedTodayCount}</p>
               </div>
             </div>
 
             <div className="space-y-3 flex-shrink-0">
               <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
+                <h4 className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 text-sm">
                   <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm"></span></span>
                   <span>{lang === 'en' ? 'Current Spot' : 'বর্তমান অবস্থান'}</span>
                 </h4>
-                <div className="flex items-center gap-2 bg-indigo-50/80 px-2 py-1 rounded-full border border-indigo-100 shadow-sm">
-                  <span className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter w-10">{detectionRange}m Range</span>
-                  <input type="range" min="1" max="50" value={detectionRange} onChange={(e) => setDetectionRange(Number(e.target.value))} className="w-12 h-1 bg-indigo-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                <div className="flex items-center gap-2 bg-indigo-50/80 dark:bg-indigo-900/30 px-2 py-1 rounded-full border border-indigo-100 dark:border-indigo-800 shadow-sm">
+                  <span className="text-[8px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter w-10">{detectionRange}m Range</span>
+                  <input type="range" min="1" max="50" value={detectionRange} onChange={(e) => setDetectionRange(Number(e.target.value))} className="w-12 h-1 bg-indigo-200 dark:bg-indigo-800 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
                 </div>
               </div>
               
               {atShop ? (
-                <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 border border-emerald-200 rounded-2xl p-4 shadow-sm flex gap-4 cursor-pointer relative overflow-hidden group" onClick={() => setViewingShop(atShop)}>
+                <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 dark:from-emerald-900/20 dark:via-slate-800 dark:to-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 shadow-sm flex gap-4 cursor-pointer relative overflow-hidden group" onClick={() => setViewingShop(atShop)}>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-400/10 rounded-full -translate-y-16 translate-x-16 blur-3xl group-hover:bg-emerald-500/20 transition-colors"></div>
                   <div className="absolute top-2 right-2 z-20">
                     <span className="bg-emerald-600 text-white text-[8px] font-black px-2 py-1 rounded-full shadow-sm flex items-center gap-1.5 border border-white/20">
@@ -1954,40 +2442,40 @@ const App: React.FC = () => {
                     </span>
                   </div>
                   <div className="relative flex-shrink-0">
-                    <div className="w-20 h-20 rounded-xl bg-white flex-shrink-0 overflow-hidden border border-emerald-100 shadow-md relative z-10 transform group-hover:scale-105 transition-transform duration-500">
-                      {atShop.photo ? <img src={atShop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-emerald-300 bg-emerald-50/50"><svg className="w-10 h-10" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg></div>}
+                    <div className="w-20 h-20 rounded-xl bg-white dark:bg-slate-700 flex-shrink-0 overflow-hidden border border-emerald-100 dark:border-emerald-900 shadow-md relative z-10 transform group-hover:scale-105 transition-transform duration-500">
+                      {atShop.photo ? <img src={atShop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-emerald-300 dark:text-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/30"><svg className="w-10 h-10" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg></div>}
                     </div>
                   </div>
                   <div className="flex-1 min-w-0 relative z-10 py-1">
-                    <p className="text-[9px] font-black text-emerald-700 uppercase tracking-wider mb-1 flex items-center gap-2">
+                    <p className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm animate-pulse"></span>
                       {lang === 'en' ? `Detected:` : `শনাক্ত:`}
                     </p>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-black text-slate-900 leading-tight group-hover:text-emerald-700 transition-colors duration-300">{atShop.name}</h2>
+                      <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 leading-tight group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors duration-300">{atShop.name}</h2>
                       {isVisitedToday(atShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-sm border border-white/40"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-                      <p className="text-sm font-bold text-slate-600">{atShop.ownerName}</p>
+                      <p className="text-sm font-bold text-slate-600 dark:text-slate-400">{atShop.ownerName}</p>
                       <div className="flex gap-1.5 flex-wrap">
-                        <span className="bg-emerald-100 text-emerald-800 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-200">{activeAreas.find(a => a.id === atShop.areaId)?.name}</span>
-                        {atShop.subArea && <span className="bg-white text-emerald-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-100">{atShop.subArea}</span>}
+                        <span className="bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-200 dark:border-emerald-800">{activeAreas.find(a => a.id === atShop.areaId)?.name}</span>
+                        {atShop.subArea && <span className="bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-100 dark:border-emerald-800">{atShop.subArea}</span>}
                       </div>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-8 text-center shadow-inner relative overflow-hidden group">
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-50/30 to-transparent animate-shimmer"></div>
+                <div className="bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center shadow-inner relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-50/30 dark:via-indigo-900/10 to-transparent animate-shimmer"></div>
                   <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border border-slate-400 rounded-full animate-ping-slow"></div>
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-slate-400 rounded-full animate-ping-slow delay-700"></div>
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border border-slate-400 dark:border-slate-600 rounded-full animate-ping-slow"></div>
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-slate-400 dark:border-slate-600 rounded-full animate-ping-slow delay-700"></div>
                   </div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest relative z-10 flex flex-col items-center gap-3">
+                  <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest relative z-10 flex flex-col items-center gap-3">
                     <div className="relative">
                       <div className="absolute inset-0 bg-indigo-400 rounded-full blur-xl opacity-20 animate-pulse"></div>
-                      <svg className="w-8 h-8 text-slate-300 animate-spin-slow relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-500 rounded-full animate-pulse border-2 border-white shadow-sm"></span>
+                      <svg className="w-8 h-8 text-slate-300 dark:text-slate-700 animate-spin-slow relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-500 rounded-full animate-pulse border-2 border-white dark:border-slate-800 shadow-sm"></span>
                     </div>
                     {lang === 'en' ? `Scanning...` : `খোঁজা হচ্ছে...`}
                   </div>
@@ -1995,7 +2483,7 @@ const App: React.FC = () => {
               )}
             </div>
 
-            <div className="bg-indigo-600 rounded-lg p-2 text-white relative overflow-hidden shadow-lg flex-shrink-0">
+            <div className="bg-indigo-600 dark:bg-indigo-900 rounded-lg p-2 text-white relative overflow-hidden shadow-lg flex-shrink-0">
               <div className="relative z-10">
                 <div className="flex justify-between items-center mb-1">
                   <h3 className="text-[9px] font-black uppercase tracking-tight opacity-70">Field Areas ({currentDayName})</h3>
@@ -2011,35 +2499,76 @@ const App: React.FC = () => {
 
             <div className="space-y-2 flex-1 min-h-0 flex flex-col">
               <div className="flex justify-between items-center">
-                <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2"><span>{t('nearbyShops')}</span>{nearbyShops.length > 0 && <span className="bg-indigo-100 text-indigo-600 text-[9px] px-1.5 py-0.5 rounded-full font-black">{nearbyShops.length}</span>}</h4>
-                <div className="flex items-center gap-1.5 bg-indigo-50/80 px-2 py-1 rounded-full border border-indigo-100 shadow-sm"><span className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter w-12">{nearbyRange}m Range</span><input type="range" min="10" max="500" step="10" value={nearbyRange} onChange={(e) => setNearbyRange(Number(e.target.value))} className="w-16 h-1 bg-indigo-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" /></div>
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><span>{t('nearbyShops')}</span>{nearbyShops.length > 0 && <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[9px] px-1.5 py-0.5 rounded-full font-black">{nearbyShops.length}</span>}</h4>
+                <div className="flex items-center gap-1.5 bg-indigo-50/80 dark:bg-indigo-900/30 px-2 py-1 rounded-full border border-indigo-100 dark:border-indigo-800 shadow-sm"><span className="text-[8px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter w-12">{nearbyRange}m Range</span><input type="range" min="10" max="500" step="10" value={nearbyRange} onChange={(e) => setNearbyRange(Number(e.target.value))} className="w-16 h-1 bg-indigo-200 dark:bg-indigo-800 rounded-lg appearance-none cursor-pointer accent-indigo-600" /></div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden flex-1">
-                <div className="h-full overflow-y-auto p-2 space-y-2 scrollbar-hide">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+                <div className="max-h-[320px] overflow-y-auto p-2 space-y-2 scrollbar-hide">
                   {nearbyShops.length > 0 ? nearbyShops.map(shop => (
-                    <div key={shop.id} className="p-2 rounded-lg flex items-center gap-2 border border-slate-50 hover:border-indigo-100 bg-slate-50/30 transition-colors cursor-pointer" onClick={() => setViewingShop(shop)}>
-                      <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0 overflow-hidden relative">
-                        {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
+                    <div key={shop.id} className="p-2 rounded-lg flex items-center gap-2 border border-slate-50 dark:border-slate-800 hover:border-indigo-100 dark:hover:border-indigo-900 bg-slate-50/30 dark:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => setViewingShop(shop)}>
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex-shrink-0 overflow-hidden relative">
+                        {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-600"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
                         {isVisitedToday(shop.id) && <div className="absolute top-0.5 right-0.5 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm border border-white/20"><svg className="w-1.5 h-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></div>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
-                          <p className="font-bold text-slate-800 text-xs leading-tight flex items-center gap-1">{shop.name}</p>
-                          <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1 py-0.5 rounded-md flex-shrink-0">{Math.round((shop as any).distance)}m</span>
+                          <p className="font-bold text-slate-800 dark:text-slate-100 text-xs leading-tight flex items-center gap-1">{shop.name}</p>
+                          <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1 py-0.5 rounded-md flex-shrink-0">{Math.round((shop as any).distance)}m</span>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
-                          <p className="text-[9px] text-slate-500">{shop.ownerName}</p>
+                          <p className="text-[9px] text-slate-500 dark:text-slate-400">{shop.ownerName}</p>
                           <div className="flex gap-1 items-center overflow-hidden">
-                            <span className="text-[7px] font-black text-slate-400 bg-slate-100 px-1 py-0.5 rounded uppercase flex-shrink-0">{activeAreas.find(a => a.id === shop.areaId)?.name}</span>
-                            {shop.subArea && <span className="text-[7px] font-black text-slate-400 bg-slate-50 px-1 py-0.5 rounded uppercase truncate">{shop.subArea}</span>}
+                            <span className="text-[7px] font-black text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded uppercase flex-shrink-0">{activeAreas.find(a => a.id === shop.areaId)?.name}</span>
+                            {shop.subArea && <span className="text-[7px] font-black text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 px-1 py-0.5 rounded uppercase truncate">{shop.subArea}</span>}
                           </div>
                         </div>
                       </div>
                     </div>
-                  )) : <div className="py-8 text-center"><p className="text-xs font-bold text-slate-400 italic">No shops within {nearbyRange}m.</p></div>}
+                  )) : <div className="py-8 text-center"><p className="text-xs font-bold text-slate-400 dark:text-slate-500 italic">No shops within {nearbyRange}m.</p></div>}
                 </div>
               </div>
             </div>
+
+            {getSpecialDayShops().length > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-4 shadow-sm relative overflow-hidden flex-shrink-0">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-400/10 rounded-full -translate-y-12 translate-x-12 blur-2xl"></div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-sm border border-amber-200 dark:border-amber-800">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 5a3 3 0 015-2.236A3 3 0 0114.83 6H16a2 2 0 110 4h-5V9a1 1 0 10-2 0v1H4a2 2 0 110-4h1.17C5.06 5.687 5 5.35 5 5zm4 1V5a1 1 0 10-1 1h1zm3 0a1 1 0 10-1-1v1h1z" clipRule="evenodd" /><path d="M9 11H3v5a2 2 0 002 2h4v-7zM11 18h4a2 2 0 002-2v-5h-6v7z" clipRule="evenodd" /></svg>
+                  </div>
+                  <div>
+                    <h5 className="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-widest leading-none mb-1">{t('celebratingToday')}</h5>
+                    <p className="text-[8px] text-amber-600 dark:text-amber-500 font-bold uppercase tracking-tighter">Send your best wishes!</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {getSpecialDayShops().map(shop => {
+                    const today = new Date();
+                    const isBirthday = shop.birthday && new Date(shop.birthday).getMonth() === today.getMonth() && new Date(shop.birthday).getDate() === today.getDate();
+                    
+                    return (
+                      <div key={shop.id} className="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-amber-100 dark:border-amber-900/30 flex items-center justify-between shadow-sm group cursor-pointer active:scale-[0.98] transition-all" onClick={() => setViewingShop(shop)}>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 overflow-hidden border border-slate-200 dark:border-slate-600">
+                            {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-500"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg></div>}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate leading-tight">{shop.name}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-tighter bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded border border-amber-100 dark:border-amber-900/20">{isBirthday ? t('birthday') : t('anniversary')}</span>
+                              <span className="text-[8px] text-slate-400 dark:text-slate-500 font-bold uppercase truncate">{shop.ownerName}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <a href={`tel:${shop.phone}`} onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-200 dark:shadow-none active:scale-90 transition-all">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2048,11 +2577,13 @@ const App: React.FC = () => {
             <MapComponent 
               currentLocation={currentLocation} 
               shops={activeShops} 
+              places={places}
               areas={activeAreas} 
               activeRoute={activeRoute} 
               navigationTarget={navigationTarget} 
               onStopNavigation={() => setNavigationTarget(null)} 
               onShopClick={(shop) => setViewingShop(shop)}
+              visitedShopIds={visits.filter(v => v.date === todayIso).map(v => v.shopId)}
               t={t} 
             />
           </div>
@@ -2200,10 +2731,10 @@ const App: React.FC = () => {
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 000 6z" />
                  </svg>
-                 {isManagingCatalog ? t('catalogSection') : t('settings')}
+                 {isManagingCatalog ? t('catalogSection') : isManagingShops ? t('manageShops') : isManagingPlaces ? t('managePlaces') : t('settings')}
                </h4>
-               {isManagingCatalog && (
-                 <button onClick={() => setIsManagingCatalog(false)} className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full text-[10px] font-bold border border-slate-200">Back</button>
+               {(isManagingCatalog || isManagingShops || isManagingPlaces) && (
+                 <button onClick={() => { setIsManagingCatalog(false); setIsManagingShops(false); setIsManagingPlaces(false); }} className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full text-[10px] font-bold border border-slate-200">Back</button>
                )}
             </div>
 
@@ -2242,40 +2773,226 @@ const App: React.FC = () => {
                     }) : <div className="py-20 text-center text-slate-300 italic text-sm">Catalog is empty. Add products to start.</div>}
                  </div>
               </div>
+            ) : isManagingShops ? (
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center bg-rose-50/50 p-3 rounded-2xl border border-rose-100 px-4">
+                    <p className="text-[10px] font-bold text-rose-700">Total Active Shops: {activeShops.length}</p>
+                 </div>
+                 <div className="space-y-2">
+                    {activeShops.length > 0 ? activeShops.map(shop => (
+                      <div key={shop.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-slate-50 flex-shrink-0 overflow-hidden border border-slate-100">
+                          {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 font-bold text-[10px]">{shop.name.charAt(0)}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <h6 className="font-bold text-slate-800 text-xs truncate leading-tight">{shop.name}</h6>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <p className="text-[9px] text-slate-400 font-bold">{shop.ownerName}</p>
+                            <span className="text-slate-200 text-[8px]">•</span>
+                            <span className={`text-[8px] font-black uppercase tracking-tighter ${shop.status === 'Inactive' ? 'text-rose-500' : 'text-emerald-500'}`}>
+                              {shop.status === 'Inactive' ? t('inactivePartner') : t('activePartner')}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button onClick={(e) => toggleShopStatus(shop.id, e)} className={`p-2 rounded-lg transition-colors ${shop.status === 'Inactive' ? 'bg-emerald-50 text-emerald-500 hover:text-emerald-600' : 'bg-slate-50 text-slate-400 hover:text-slate-600'}`}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </button>
+                          <button onClick={(e) => deleteShop(shop.id, e)} className="p-2 bg-rose-50 text-rose-400 rounded-lg hover:text-rose-600 transition-colors">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    )) : <div className="py-20 text-center text-slate-300 italic text-sm">No shops found.</div>}
+                 </div>
+              </div>
+            ) : isManagingPlaces ? (
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center bg-sky-50/50 p-3 rounded-2xl border border-sky-100 px-4">
+                    <p className="text-[10px] font-bold text-sky-700">Total Saved Places: {activePlaces.length}</p>
+                    <button onClick={() => { setEditingPlace({}); setIsEditingPlace(true); }} className="bg-sky-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-lg shadow-sky-100 transition-all active:scale-95">{t('addPlace')}</button>
+                 </div>
+                 <div className="space-y-2">
+                    {activePlaces.length > 0 ? activePlaces.map(place => (
+                      <div key={place.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-sky-50 flex-shrink-0 flex items-center justify-center border border-sky-100 text-sky-600">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <h6 className="font-bold text-slate-800 text-xs truncate leading-tight">{place.name}</h6>
+                          <p className="text-[9px] text-slate-400 font-bold truncate">{place.description || 'No description'}</p>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => { setEditingPlace(place); setIsEditingPlace(true); }} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-sky-600 transition-colors">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          </button>
+                          <button onClick={(e) => deletePlace(place.id, e)} className="p-2 bg-rose-50 text-rose-400 rounded-lg hover:text-rose-600 transition-colors">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    )) : <div className="py-20 text-center text-slate-300 italic text-sm">No saved places found.</div>}
+                 </div>
+              </div>
             ) : (
               <>
+                <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 relative overflow-hidden group">
+                  <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex-shrink-0 overflow-hidden border-2 border-white shadow-md relative z-10">
+                    {userProfile.photo ? (
+                      <img src={userProfile.photo} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-indigo-300">
+                        <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left relative z-10">
+                    <h5 className="font-black text-slate-800 text-sm truncate leading-tight">
+                      {userProfile.name || 'Set Your Name'}
+                    </h5>
+                    <p className="text-[10px] font-bold text-indigo-600 mt-0.5">
+                      {userProfile.designation || 'Designation'}
+                    </p>
+                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                      ID: {userProfile.employeeId || 'N/A'}
+                    </p>
+                    {userProfile.phone && (
+                      <p className="text-[9px] text-slate-400 font-bold mt-0.5">
+                        {userProfile.phone}
+                      </p>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => { setTempProfile(userProfile); setIsEditingProfile(true); }}
+                    className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all active:scale-95 relative z-10"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/50 rounded-full translate-x-8 -translate-y-8 group-hover:scale-110 transition-transform"></div>
+                </div>
+
                 <div className="space-y-2">
                   <button 
                     onClick={() => setIsManagingCatalog(true)}
-                    className="w-full bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
+                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
                       </div>
                       <div className="text-left">
-                        <p className="font-bold text-slate-800 text-xs">{t('catalogSection')}</p>
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">{activeProducts.length} Registered Items</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('catalogSection')}</p>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activeProducts.length} Registered Items</p>
                       </div>
                     </div>
-                    <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                  </button>
+
+                  <button 
+                    onClick={() => setIsManagingShops(true)}
+                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-xl flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-colors">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('manageShops')}</p>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activeShops.length} Active Shops</p>
+                      </div>
+                    </div>
+                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                  </button>
+
+                  <button 
+                    onClick={() => setIsManagingPlaces(true)}
+                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 rounded-xl flex items-center justify-center group-hover:bg-sky-600 group-hover:text-white transition-colors">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('managePlaces')}</p>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activePlaces.length} Saved Places</p>
+                      </div>
+                    </div>
+                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                  </button>
+
+                  <button 
+                    onClick={() => setIsDarkMode(!isDarkMode)}
+                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                        {isDarkMode ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 5a7 7 0 100 14 7 7 0 000-14z" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+                        )}
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('theme')}</p>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{isDarkMode ? t('darkMode') : t('lightMode')}</p>
+                      </div>
+                    </div>
+                    <div className={`w-8 h-4 rounded-full relative transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isDarkMode ? 'left-4.5' : 'left-0.5'}`}></div>
+                    </div>
                   </button>
 
                   <button 
                     onClick={() => { setEditingDealer({}); setIsEditingDealer(true); }}
-                    className="w-full bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
+                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                      <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                       </div>
                       <div className="text-left">
-                        <p className="font-bold text-slate-800 text-xs">Add Dealer</p>
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">{activeDealers.length} Current Dealers</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Add Dealer</p>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activeDealers.length} Current Dealers</p>
                       </div>
                     </div>
-                    <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
                   </button>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm space-y-4">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                    </div>
+                    <div className="text-left">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('notificationSettings')}</p>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{t('pushNotifications')}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {[
+                      { key: 'orderConfirmation', label: t('orderConfirmation') },
+                      { key: 'targetReminder', label: t('targetReminder') },
+                      { key: 'newShopDetection', label: t('newShopDetection') }
+                    ].map((pref) => (
+                      <div key={pref.key} className="flex items-center justify-between py-1">
+                        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{pref.label}</span>
+                        <button 
+                          onClick={() => setNotificationPrefs(prev => ({ ...prev, [pref.key]: !prev[pref.key as keyof NotificationPreferences] }))}
+                          className={`w-10 h-5 rounded-full relative transition-colors ${notificationPrefs[pref.key as keyof NotificationPreferences] ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}
+                        >
+                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${notificationPrefs[pref.key as keyof NotificationPreferences] ? 'left-6' : 'left-1'}`}></div>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="bg-indigo-700 rounded-2xl p-4 text-white shadow-xl space-y-4 relative overflow-hidden">
@@ -2309,9 +3026,9 @@ const App: React.FC = () => {
                   <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -translate-y-8 translate-x-8 blur-2xl"></div>
                 </div>
 
-                <div className="bg-slate-100 p-4 rounded-2xl text-center space-y-1">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">App Information</p>
-                  <p className="text-[10px] font-bold text-slate-600 leading-tight">FieldPro Sales Assistant v1.2.4<br/>Data is stored strictly on this device.</p>
+                <div className="bg-slate-100 dark:bg-slate-900 p-4 rounded-2xl text-center space-y-1">
+                  <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-tighter">App Information</p>
+                  <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 leading-tight">FieldPro Sales Assistant v1.2.4<br/>Data is stored strictly on this device.</p>
                 </div>
               </>
             )}
@@ -2758,9 +3475,9 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/30 scrollbar-hide">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1.5 mb-1.5 text-left">Orders for {orderShop.name}</p>
-              {orders.filter(o => o.shopId === orderShop.id).length > 0 ? (
-                orders.filter(o => o.shopId === orderShop.id).map(order => (
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1.5 mb-1.5 text-left">Orders for {orderShop?.name || 'Shop'}</p>
+              {orderShop && orders.filter(o => o.shopId === orderShop.id).length > 0 ? (
+                orders.filter(o => o.shopId === orderShop?.id).map(order => (
                   <div key={order.id} onClick={() => setSelectedOrderForDetail(order)} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm space-y-2.5 text-left active:scale-[0.98] transition-all cursor-pointer">
                     <div className="flex justify-between items-start">
                       <div>
@@ -2983,9 +3700,101 @@ const App: React.FC = () => {
       {viewingRoute && (
         <div className="fixed inset-0 bg-white z-[9999] flex flex-col animate-fadeIn">
           <div className="relative flex-1">
-            <MapComponent currentLocation={currentLocation} shops={activeShops} areas={activeAreas} activeRoute={viewingRoute} t={t} />
-            <button onClick={() => setViewingRoute(null)} className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md text-slate-700 p-2.5 rounded-xl shadow-xl border border-white/20 flex items-center gap-2 transition-all active:scale-95"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7 7-7" /></svg><span className="text-xs font-black uppercase tracking-widest">{t('cancel')}</span></button>
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-indigo-700 text-white px-6 py-3 rounded-2xl shadow-2xl flex flex-col items-center min-w-[180px]"><span className="text-[10px] font-black uppercase tracking-widest opacity-70">Viewing Route</span><span className="text-sm font-bold truncate max-w-full">{viewingRoute.customAreaName || viewingRoute.date}</span></div>
+            <MapComponent 
+              currentLocation={currentLocation} 
+              shops={activeShops} 
+              places={places}
+              areas={activeAreas} 
+              activeRoute={viewingRoute} 
+              playbackLocation={isPlaybackPlaying || playbackIndex > 0 ? viewingRoute.path[playbackIndex] : null}
+              showPlaybackControls={showPlaybackControls}
+              onTogglePlaybackControls={() => setShowPlaybackControls(!showPlaybackControls)}
+              onShopClick={(shop) => setViewingShop(shop)}
+              visitedShopIds={viewingRoute ? visits.filter(v => v.timestamp >= viewingRoute.startTime && v.timestamp <= (viewingRoute.endTime || Date.now())).map(v => v.shopId) : []}
+              t={t} 
+            />
+            <button 
+              onClick={() => setViewingRoute(null)} 
+              className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md text-slate-700 p-2.5 rounded-xl shadow-xl border border-white/20 flex items-center gap-2 transition-all active:scale-95"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7 7-7" /></svg>
+              <span className="text-xs font-black uppercase tracking-widest">{t('cancel')}</span>
+            </button>
+            
+            {/* Playback Controls */}
+            {showPlaybackControls && (
+              <div className="absolute bottom-36 left-0 right-0 z-[1000] flex justify-center px-4 animate-scaleUp">
+                <div className="bg-slate-900/95 backdrop-blur-xl text-white p-3 rounded-2xl shadow-2xl border border-white/10 w-full max-w-[280px] flex flex-col gap-2">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex flex-col">
+                      <span className="text-[8px] font-black uppercase tracking-widest opacity-60">{t('routePlayback')}</span>
+                      <span className="text-[10px] font-bold truncate max-w-[120px]">{viewingRoute.customAreaName || viewingRoute.date}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {currentLocation && (
+                        <button 
+                          onClick={() => {
+                            // This will be handled by the MapComponent's isFollowing state if we could trigger it
+                            // For now, we rely on the map's own follow button, but we can add a hint
+                          }}
+                          className="bg-white/10 hover:bg-white/20 p-1 rounded-md transition-colors"
+                          title="My Location"
+                        >
+                          <Navigation className="w-3 h-3 text-blue-400" />
+                        </button>
+                      )}
+                      {[1, 2, 4].map(speed => (
+                        <button
+                          key={speed}
+                          onClick={() => setPlaybackSpeed(speed)}
+                          className={`px-1.5 py-0.5 rounded-md text-[9px] font-black transition-all ${playbackSpeed === speed ? 'bg-indigo-600 text-white' : 'bg-white/10 text-slate-400'}`}
+                        >
+                          {speed}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setIsPlaybackPlaying(!isPlaybackPlaying)}
+                      className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30 transition-all active:scale-90"
+                    >
+                      {isPlaybackPlaying ? (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      )}
+                    </button>
+
+                    <div className="flex-1 flex flex-col gap-1">
+                      <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-indigo-400 transition-all duration-300" 
+                          style={{ width: `${(playbackIndex / (viewingRoute.path.length - 1)) * 100}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[7px] font-black uppercase tracking-tighter opacity-50">
+                        <span>{playbackIndex + 1} / {viewingRoute.path.length}</span>
+                        <span>{Math.round((playbackIndex / (viewingRoute.path.length - 1)) * 100)}%</span>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => { setPlaybackIndex(0); setIsPlaybackPlaying(true); }}
+                      className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors active:scale-90"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-indigo-700 text-white px-6 py-3 rounded-2xl shadow-2xl flex flex-col items-center min-w-[180px]">
+              <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Viewing Route</span>
+              <span className="text-sm font-bold truncate max-w-full">{viewingRoute.customAreaName || viewingRoute.date}</span>
+            </div>
           </div>
         </div>
       )}
@@ -3057,7 +3866,12 @@ const App: React.FC = () => {
               <div className="flex justify-between items-start mb-4">
                 <div className="flex-1 min-w-0 pr-3">
                   <div className="flex items-center gap-2"><h2 className="text-2xl font-black text-slate-900 leading-tight mb-0.5">{viewingShop.name}</h2>{isVisitedToday(viewingShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-lg animate-scaleUp"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}</div>
-                  <div className="flex items-center gap-1"><div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Active Partner</span></div>
+                  <div className="flex items-center gap-1">
+                    <div className={`w-1 h-1 rounded-full animate-pulse ${viewingShop.status === 'Inactive' ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                    <span className={`text-[8px] font-black uppercase tracking-widest ${viewingShop.status === 'Inactive' ? 'text-rose-500' : 'text-slate-400'}`}>
+                      {viewingShop.status === 'Inactive' ? t('inactivePartner') : t('activePartner')}
+                    </span>
+                  </div>
                 </div>
                 <a href={`tel:${viewingShop.phone}`} className="bg-emerald-500 text-white p-3.5 rounded-xl shadow-lg shadow-emerald-200 transition-all active:scale-90 hover:bg-emerald-600"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg></a>
               </div>
@@ -3066,6 +3880,26 @@ const App: React.FC = () => {
                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('ownerName')}</p><p className="text-sm font-bold text-slate-700 leading-tight truncate">{viewingShop.ownerName}</p></div>
                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('dues')}</p><p className={`text-sm font-black leading-tight truncate ${getShopBalance(viewingShop.id) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>৳{getShopBalance(viewingShop.id)}</p></div>
                  </div>
+
+                 {(isSpecialDayNear(viewingShop.birthday) || isSpecialDayNear(viewingShop.anniversary)) && (
+                   <div className="bg-amber-50/50 dark:bg-amber-900/10 p-3 rounded-2xl border border-amber-100 dark:border-amber-900/30 space-y-2">
+                      <h4 className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest px-1">{t('specialDays')}</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        {isSpecialDayNear(viewingShop.birthday) && (
+                          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-xl border border-amber-100/50 dark:border-amber-900/20 shadow-sm">
+                            <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 5a3 3 0 015-2.236A3 3 0 0114.83 6H16a2 2 0 110 4h-5V9a1 1 0 10-2 0v1H4a2 2 0 110-4h1.17C5.06 5.687 5 5.35 5 5zm4 1V5a1 1 0 10-1 1h1zm3 0a1 1 0 10-1-1v1h1z" clipRule="evenodd" /><path d="M9 11H3v5a2 2 0 002 2h4v-7zM11 18h4a2 2 0 002-2v-5h-6v7z" clipRule="evenodd" /></svg></div>
+                            <div className="min-w-0"><p className="text-[7px] font-black text-amber-400 dark:text-amber-600 uppercase tracking-tighter leading-none mb-0.5">{t('birthday')}</p><p className="text-[10px] font-bold text-amber-900 dark:text-amber-200 truncate">{new Date(viewingShop.birthday).toLocaleDateString(lang === 'en' ? 'en-US' : 'bn-BD', { day: 'numeric', month: 'long' })}</p></div>
+                          </div>
+                        )}
+                        {isSpecialDayNear(viewingShop.anniversary) && (
+                          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-xl border border-amber-100/50 dark:border-amber-900/20 shadow-sm">
+                            <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg></div>
+                            <div className="min-w-0"><p className="text-[7px] font-black text-amber-400 dark:text-amber-600 uppercase tracking-tighter leading-none mb-0.5">{t('anniversary')}</p><p className="text-[10px] font-bold text-amber-900 dark:text-amber-200 truncate">{new Date(viewingShop.anniversary).toLocaleDateString(lang === 'en' ? 'en-US' : 'bn-BD', { day: 'numeric', month: 'long' })}</p></div>
+                          </div>
+                        )}
+                      </div>
+                   </div>
+                 )}
                  
                  {/* Payment History Section - Replaced with a button to open a separate page/modal */}
                  <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
@@ -3199,6 +4033,10 @@ const App: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('area')}</label><select required className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.areaId || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, areaId: e.target.value }))}><option value="">{t('selectArea')}</option>{activeAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('subArea')}</label><input type="text" placeholder="e.g. Block C" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.subArea || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, subArea: e.target.value }))} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('birthday')}</label><input type="date" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.birthday || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, birthday: e.target.value }))} /></div>
+                <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('anniversary')}</label><input type="date" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.anniversary || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, anniversary: e.target.value }))} /></div>
               </div>
               <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
                 <div className="flex justify-between items-center mb-2"><label className="block text-[10px] font-black text-indigo-900 uppercase">{t('map')} Location</label><button type="button" onClick={captureCurrentLocation} className="bg-indigo-600 text-white text-[9px] font-bold px-2.5 py-1 rounded-full transition-all active:scale-95">Current GPS</button></div>
@@ -3509,6 +4347,147 @@ const App: React.FC = () => {
               <div className="flex gap-3 pt-2">
                 <button type="submit" className="flex-1 bg-indigo-600 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-95 uppercase tracking-widest text-[10px]">Save Target</button>
                 <button type="button" onClick={() => { setIsEditingTarget(false); setEditingTarget(null); }} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3.5 rounded-2xl transition-all active:scale-95 uppercase tracking-widest text-[10px]">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isEditingPlace && (
+        <div className="fixed inset-0 z-[600] bg-slate-900/60 backdrop-blur-sm p-3 flex justify-center overflow-y-auto items-start md:items-center">
+          <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-scaleUp my-2 md:my-4">
+            <div className="p-4 bg-sky-700 text-white flex justify-between items-center">
+              <h3 className="text-sm font-bold uppercase tracking-wider">{editingPlace?.id ? t('editPlace') : t('addPlace')}</h3>
+              <button onClick={() => setIsEditingPlace(false)} className="transition-all active:scale-90">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); savePlace(editingPlace!); }} className="p-4 space-y-3 text-left">
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('placeName')}</label>
+                <input required type="text" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-sky-500 outline-none" value={editingPlace?.name || ''} onFocus={handleInputFocus} onChange={e => setEditingPlace(prev => ({ ...prev, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Description</label>
+                <textarea className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-sky-500 outline-none resize-none h-20" value={editingPlace?.description || ''} onFocus={handleInputFocus} onChange={e => setEditingPlace(prev => ({ ...prev, description: e.target.value }))} placeholder="Optional details about this place..." />
+              </div>
+              <div className="bg-sky-50/50 p-3 rounded-xl border border-sky-100">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-[10px] font-black text-sky-900 uppercase">{t('map')} Location</label>
+                  <button type="button" onClick={async () => {
+                    try {
+                      const position = await Geolocation.getCurrentPosition();
+                      setEditingPlace(prev => ({ ...prev, location: { lat: position.coords.latitude, lng: position.coords.longitude } }));
+                    } catch (err) {
+                      alert("Error getting location. Please ensure GPS is on.");
+                    }
+                  }} className="bg-sky-600 text-white text-[9px] font-bold px-2.5 py-1 rounded-full transition-all active:scale-95">Current GPS</button>
+                </div>
+                {editingPlace?.location && <p className="text-[9px] text-sky-400 font-mono mb-1.5">Lat: {editingPlace.location.lat.toFixed(6)}, Lng: {editingPlace.location.lng.toFixed(6)}</p>}
+                <div className="h-48 rounded-lg overflow-hidden border border-sky-100">
+                  <LocationPickerMap initialLocation={editingPlace?.location || { lat: 23.8103, lng: 90.4125 }} onChange={(newLoc) => setEditingPlace(prev => ({ ...prev, location: { lat: Number(newLoc.lat), lng: Number(newLoc.lng) } }))} />
+                </div>
+              </div>
+              <div className="pt-1 flex gap-2">
+                <button type="submit" className="flex-1 bg-sky-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-sky-700">{t('save')}</button>
+                <button type="button" onClick={() => setIsEditingPlace(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-slate-200">{t('cancel')}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isEditingProfile && (
+        <div className="fixed inset-0 z-[5000] bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 sm:p-8 shadow-2xl animate-slideUp sm:animate-scaleUp overflow-y-auto max-h-[90vh] scrollbar-hide">
+            <div className="flex justify-between items-center mb-6">
+              <div className="text-left">
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">{t('editProfile')}</h3>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Update your personal information</p>
+              </div>
+              <button onClick={() => setIsEditingProfile(false)} className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:bg-rose-50 hover:text-rose-500 transition-all active:scale-90">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <form onSubmit={(e) => { e.preventDefault(); setUserProfile(tempProfile); setIsEditingProfile(false); }} className="space-y-5">
+              <div className="flex flex-col items-center gap-4 mb-2">
+                <div className="relative group">
+                  <div className="w-24 h-24 rounded-3xl bg-slate-50 border-2 border-dashed border-indigo-200 flex items-center justify-center overflow-hidden shadow-inner group-hover:border-indigo-400 transition-colors">
+                    {tempProfile.photo ? (
+                      <img src={tempProfile.photo} className="w-full h-full object-cover" />
+                    ) : (
+                      <svg className="w-10 h-10 text-indigo-200" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => userPhotoRef.current?.click()}
+                    className="absolute -bottom-2 -right-2 bg-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-indigo-200 border-2 border-white active:scale-90 transition-all"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  </button>
+                  <input type="file" accept="image/*" className="hidden" ref={userPhotoRef} onChange={handleUserProfilePhotoUpload} />
+                </div>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Tap camera to change photo</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('userName')}</label>
+                  <input
+                    required
+                    type="text"
+                    className="w-full bg-slate-50 rounded-2xl px-4 py-3.5 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm transition-all"
+                    placeholder="Enter your full name"
+                    value={tempProfile.name || ''}
+                    onChange={e => setTempProfile(prev => ({ ...prev, name: e.target.value }))}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('employeeId')}</label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full bg-slate-50 rounded-2xl px-4 py-3.5 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm transition-all"
+                      placeholder="EMP-001"
+                      value={tempProfile.employeeId || ''}
+                      onChange={e => setTempProfile(prev => ({ ...prev, employeeId: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('designation')}</label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full bg-slate-50 rounded-2xl px-4 py-3.5 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm transition-all"
+                      placeholder="Sales Officer"
+                      value={tempProfile.designation || ''}
+                      onChange={e => setTempProfile(prev => ({ ...prev, designation: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('phoneNumber')}</label>
+                  <input
+                    required
+                    type="tel"
+                    className="w-full bg-slate-50 rounded-2xl px-4 py-3.5 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm transition-all"
+                    placeholder="01XXX-XXXXXX"
+                    value={tempProfile.phone || ''}
+                    onChange={e => setTempProfile(prev => ({ ...prev, phone: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button type="submit" className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-95 uppercase tracking-widest text-[10px]">{t('save')}</button>
+                <button type="button" onClick={() => setIsEditingProfile(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95 uppercase tracking-widest text-[10px]">{t('cancel')}</button>
               </div>
             </form>
           </div>

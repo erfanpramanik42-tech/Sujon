@@ -27,10 +27,13 @@ export interface Shop {
   phone: string;
   subArea?: string;
   photo?: string; // base64
+  status?: 'Active' | 'Inactive';
   location: GeoLocation;
   areaId: string;
   createdAt: number;
   isArchived?: boolean;
+  birthday?: string; // YYYY-MM-DD
+  anniversary?: string; // YYYY-MM-DD
 }
 
 export interface Visit {
@@ -136,6 +139,29 @@ export interface Expense {
   date: string; // YYYY-MM-DD
   description?: string;
   timestamp: number;
+}
+
+export interface UserProfile {
+  name: string;
+  photo?: string; // base64
+  employeeId: string;
+  designation: string;
+  phone: string;
+}
+
+export interface Place {
+  id: string;
+  name: string;
+  description?: string;
+  location: GeoLocation;
+  createdAt: number;
+  isArchived?: boolean;
+}
+
+export interface NotificationPreferences {
+  orderConfirmation: boolean;
+  targetReminder: boolean;
+  newShopDetection: boolean;
 }
 
 export type AppView = 'Dashboard' | 'Map' | 'Shops' | 'History' | 'Settings';
