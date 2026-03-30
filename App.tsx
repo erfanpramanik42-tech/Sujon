@@ -1347,7 +1347,7 @@ const App: React.FC = () => {
     // Initial location fetch
     const getInitialLocation = async () => {
       try {
-        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+        const pos = await getCurrentPosition({ enableHighAccuracy: true });
         if (pos) {
           const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
           setCurrentLocation({ 
@@ -4376,10 +4376,15 @@ const App: React.FC = () => {
                   <label className="block text-[10px] font-black text-sky-900 uppercase">{t('map')} Location</label>
                   <button type="button" onClick={async () => {
                     try {
-                      const position = await Geolocation.getCurrentPosition();
+                      const position = await getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
                       setEditingPlace(prev => ({ ...prev, location: { lat: position.coords.latitude, lng: position.coords.longitude } }));
                     } catch (err) {
-                      alert("Error getting location. Please ensure GPS is on.");
+                      setAlertInfo({
+                        show: true,
+                        title: lang === 'en' ? "GPS Error" : "জিপিএস ত্রুটি",
+                        message: lang === 'en' ? "Error getting location. Please ensure GPS is on." : "অবস্থান পেতে ত্রুটি। অনুগ্রহ করে জিপিএস চালু আছে কিনা নিশ্চিত করুন।",
+                        type: 'error'
+                      });
                     }
                   }} className="bg-sky-600 text-white text-[9px] font-bold px-2.5 py-1 rounded-full transition-all active:scale-95">Current GPS</button>
                 </div>

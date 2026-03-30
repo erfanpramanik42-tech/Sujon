@@ -57,9 +57,12 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   const [navSteps, setNavSteps] = useState<NavStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
+  const [isRouting, setIsRouting] = useState(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
 
   // Internal Logic: Sticky Zoom Control
   const lastFitTargetId = useRef<string | null>(null);
+  const lastRoutingLocation = useRef<GeoLocation | null>(null);
 
   // Capsule Drag Logic
   const [capsuleOffset, setCapsuleOffset] = useState({ x: 0, y: 0 });
@@ -461,15 +464,34 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (!leafletMap.current || !currentLocation || !navigationTarget) {
       if (roadNavLineRef.current) { roadNavLineRef.current.remove(); roadNavLineRef.current = null; }
       setNavSteps([]);
+      setIsRouting(false);
+      setRoutingError(null);
       lastFitTargetId.current = null; 
+      lastRoutingLocation.current = null;
       return;
     }
 
-    const fetchRoute = async () => {
+    // Optimization: Don't recalculate if moved less than 30 meters and target is same
+    if (lastRoutingLocation.current && navigationTarget.id === lastFitTargetId.current) {
+      const dist = calculateDistance(currentLocation, lastRoutingLocation.current);
+      if (dist < 0.03) return; // 30 meters
+    }
+
+    const fetchRoute = async (profile: 'driving' | 'walking' = 'driving') => {
+      setIsRouting(true);
+      setRoutingError(null);
       try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation.lng},${currentLocation.lat};${navigationTarget.location.lng},${navigationTarget.location.lat}?steps=true&geometries=geojson`;
+        const url = `https://router.project-osrm.org/route/v1/${profile}/${currentLocation.lng},${currentLocation.lat};${navigationTarget.location.lng},${navigationTarget.location.lat}?steps=true&geometries=geojson&overview=full&continue_straight=true&radiuses=1000;1000`;
         const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) return;
+        
+        if (!response.ok) {
+          if (profile === 'driving') {
+            await fetchRoute('walking');
+            return;
+          }
+          setRoutingError('Route service error');
+          return;
+        }
 
         const data = await response.json();
         if (!leafletMap.current || !navigationTarget) return;
@@ -491,7 +513,6 @@ export const MapComponent: React.FC<MapComponentProps> = ({
                     duration: 1.2
                 });
                 lastFitTargetId.current = navigationTarget.id;
-                // Ensure manual interaction takes precedence after initial fit
                 setIsFollowing(false);
             }
           }
@@ -504,17 +525,27 @@ export const MapComponent: React.FC<MapComponentProps> = ({
           }));
           setNavSteps(steps);
           setCurrentStepIndex(0);
+          lastRoutingLocation.current = currentLocation;
+        } else {
+          if (profile === 'driving') {
+            await fetchRoute('walking');
+          } else {
+            setRoutingError('No route found');
+          }
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.error('Routing fetch error:', err);
+          setRoutingError('Network error');
         }
+      } finally {
+        setIsRouting(false);
       }
     };
     fetchRoute();
 
     return () => controller.abort();
-  }, [navigationTarget, currentLocation?.lat, currentLocation?.lng]);
+  }, [navigationTarget?.id, currentLocation?.lat, currentLocation?.lng]);
 
   const getDirectionAlphabet = (modifier: string) => {
     if (!modifier) return 'S';
@@ -558,7 +589,9 @@ export const MapComponent: React.FC<MapComponentProps> = ({
             </div>
             <div className="flex-1 min-w-0">
                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 truncate mb-0.5">To: {navigationTarget.name}</p>
-               <h3 className="text-[12px] font-bold leading-tight truncate">{navSteps.length > 0 ? navSteps[currentStepIndex].instruction : 'Calculating...'}</h3>
+               <h3 className="text-[12px] font-bold leading-tight truncate">
+                 {isRouting ? 'Calculating...' : routingError ? routingError : navSteps.length > 0 ? navSteps[currentStepIndex].instruction : 'No route found'}
+               </h3>
                {navSteps.length > 0 && <div className="flex items-center gap-2 mt-0.5"><span className="text-[10px] font-black text-white/70">{Math.round(navSteps[currentStepIndex].distance)}m</span><div className="flex-1 h-0.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-indigo-50 w-1/4"></div></div></div>}
             </div>
             <button onClick={onStopNavigation} className="p-1.5 hover:bg-white/10 rounded-lg shrink-0 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
