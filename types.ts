@@ -158,13 +158,26 @@ export interface Place {
   isArchived?: boolean;
 }
 
+export interface CompetitorTrack {
+  id: string;
+  shopId: string;
+  shopName: string;
+  competitorName: string;
+  productName: string;
+  price: number;
+  offerDetails?: string;
+  photo?: string; // base64
+  timestamp: number;
+  date: string; // YYYY-MM-DD
+}
+
 export interface NotificationPreferences {
   orderConfirmation: boolean;
   targetReminder: boolean;
   newShopDetection: boolean;
 }
 
-export type AppView = 'Dashboard' | 'Map' | 'Shops' | 'History' | 'Settings';
+export type AppView = 'Dashboard' | 'Map' | 'Shops' | 'History' | 'Settings' | 'Competitors';
 
 export interface Translations {
   [key: string]: {

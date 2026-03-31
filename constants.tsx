@@ -152,7 +152,7 @@ export const TRANSLATIONS: Translations = {
   trackingOff: { en: 'Start Tracking', bn: 'ট্র্যাকিং শুরু করুন' },
   nearbyAlert: { en: 'Nearby Shop Alert!', bn: 'কাছাকাছি দোকান!' },
   within100m: { en: 'is within 20 meters.', bn: '২০ মিটারের মধ্যে আছে।' },
-  search: { en: 'Search shops or owners...', bn: 'দোকান বা মালিক খুঁজুন...' },
+  search: { en: 'Search shops, owners or areas...', bn: 'দোকান, মালিক বা এলাকা খুঁজুন...' },
   noShops: { en: 'No shops found.', bn: 'কোনো দোকান পাওয়া যায়নি।' },
   routes: { en: 'Saved Routes', bn: 'সংরক্ষিত রুটসমূহ' },
   getDirections: { en: 'Get Directions', bn: 'রাস্তা দেখুন' },
@@ -261,5 +261,12 @@ export const TRANSLATIONS: Translations = {
   editPlace: { en: 'Edit Place', bn: 'স্থান সম্পাদনা' },
   placeName: { en: 'Place Name', bn: 'স্থানের নাম' },
   deletePlace: { en: 'Delete Place', bn: 'স্থান মুছুন' },
-  confirmDeletePlace: { en: 'Are you sure you want to delete this place?', bn: 'আপনি কি নিশ্চিত যে আপনি এই স্থানটি মুছতে চান?' }
+  confirmDeletePlace: { en: 'Are you sure you want to delete this place?', bn: 'আপনি কি নিশ্চিত যে আপনি এই স্থানটি মুছতে চান?' },
+  competitorTracking: { en: 'Competitor Tracking', bn: 'প্রতিযোগী ট্র্যাকিং' },
+  competitorName: { en: 'Competitor Name', bn: 'প্রতিযোগীর নাম' },
+  offerDetails: { en: 'Offer Details', bn: 'অফারের বিবরণ' },
+  addTrack: { en: 'Add Competitor Info', bn: 'প্রতিযোগীর তথ্য যোগ করুন' },
+  noTracks: { en: 'No competitor info recorded.', bn: 'কোনো প্রতিযোগীর তথ্য রেকর্ড নেই।' },
+  selectShop: { en: 'Select Shop', bn: 'দোকান নির্বাচন করুন' },
+  shop: { en: 'Shop', bn: 'দোকান' }
 };

@@ -4,11 +4,13 @@ import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Geolocation } from '@capacitor/geolocation';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { registerPlugin } from '@capacitor/core';
-import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight, Play, Pause, Navigation } from 'lucide-react';
+import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight, Play, Pause, Navigation, Phone, Trash2, Download, Upload, Database } from 'lucide-react';
 
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
-import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense, UserProfile, NotificationPreferences, Place } from './types';
+import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense, UserProfile, NotificationPreferences, Place, CompetitorTrack } from './types';
 import { INITIAL_AREAS, INITIAL_SHOPS, INITIAL_PRODUCTS, TRANSLATIONS, DEMO_ROUTES } from './constants';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
 import { MapComponent } from './components/MapComponent';
@@ -547,6 +549,27 @@ const App: React.FC = () => {
     }
     return [];
   });
+  const [competitorTracks, setCompetitorTracks] = useState<CompetitorTrack[]>(() => {
+    try {
+      const saved = localStorage.getItem('fieldpro_competitor_tracks');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error loading competitor tracks:", e);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fieldpro_competitor_tracks', JSON.stringify(competitorTracks));
+    } catch (e) {
+      console.warn("Failed to save competitor tracks to localStorage:", e);
+    }
+  }, [competitorTracks]);
+
   const [dealers, setDealers] = useState<Dealer[]>(() => {
     try {
       const saved = localStorage.getItem('fieldpro_dealers');
@@ -1145,6 +1168,39 @@ const App: React.FC = () => {
       setIsEditingProduct(false);
     }
   }, [view]);
+
+  const [isAddingCompetitorTrack, setIsAddingCompetitorTrack] = useState(false);
+  const [tempCompetitorTrack, setTempCompetitorTrack] = useState<Partial<CompetitorTrack>>({});
+  const [competitorSearch, setCompetitorSearch] = useState('');
+
+  const saveCompetitorTrack = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempCompetitorTrack.shopId || !tempCompetitorTrack.competitorName || !tempCompetitorTrack.productName || !tempCompetitorTrack.price) {
+      setAlertInfo({ show: true, title: 'Error', message: 'Please fill all required fields', type: 'error' });
+      return;
+    }
+    const shop = activeShops.find(s => s.id === tempCompetitorTrack.shopId);
+    const newTrack: CompetitorTrack = {
+      id: generateId(),
+      shopId: tempCompetitorTrack.shopId,
+      shopName: shop?.name || 'Unknown Shop',
+      competitorName: tempCompetitorTrack.competitorName,
+      productName: tempCompetitorTrack.productName,
+      price: Number(tempCompetitorTrack.price),
+      offerDetails: tempCompetitorTrack.offerDetails,
+      photo: tempCompetitorTrack.photo,
+      timestamp: Date.now(),
+      date: todayIso
+    };
+    setCompetitorTracks(prev => [newTrack, ...prev]);
+    setIsAddingCompetitorTrack(false);
+    setTempCompetitorTrack({});
+    setAlertInfo({ show: true, title: 'Success', message: 'Competitor info saved successfully', type: 'success' });
+  };
+
+  const deleteCompetitorTrack = (id: string) => {
+    setCompetitorTracks(prev => prev.filter(t => t.id !== id));
+  };
 
   const [isEditingShop, setIsEditingShop] = useState(false);
   const [isManagingAreas, setIsManagingAreas] = useState(false);
@@ -1837,11 +1893,20 @@ const App: React.FC = () => {
 
   const filteredShopsList = useMemo(() => {
     return activeShops.filter(shop => {
-      const matchesSearch = shop.name.toLowerCase().includes(searchQuery.toLowerCase()) || shop.ownerName.toLowerCase().includes(searchQuery.toLowerCase());
+      const area = activeAreas.find(a => a.id === shop.areaId);
+      const areaName = area ? area.name.toLowerCase() : '';
+      const subAreaName = shop.subArea ? shop.subArea.toLowerCase() : '';
+      
+      const matchesSearch = 
+        shop.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        shop.ownerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        areaName.includes(searchQuery.toLowerCase()) ||
+        subAreaName.includes(searchQuery.toLowerCase());
+        
       const matchesArea = selectedAreaId === 'all' || shop.areaId === selectedAreaId;
       return matchesSearch && matchesArea;
     });
-  }, [activeShops, searchQuery, selectedAreaId]);
+  }, [activeShops, searchQuery, selectedAreaId, activeAreas]);
 
   const startNavigation = (shop: Shop) => {
     setNavigationTarget(shop);
@@ -1850,7 +1915,7 @@ const App: React.FC = () => {
     setViewingRoute(null);
   };
 
-  const handleExportData = () => {
+  const handleExportData = async () => {
     const backupData = {
       version: "1.2.9", 
       timestamp: Date.now(),
@@ -1863,15 +1928,50 @@ const App: React.FC = () => {
       dealers,
       settings: { detectionRange, nearbyRange, lang }
     };
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `fieldpro_backup_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    
+    const fileName = `fieldpro_backup_${new Date().toISOString().split('T')[0]}.json`;
+    const dataString = JSON.stringify(backupData, null, 2);
+
+    // Check if running in Capacitor (Native Platform)
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+      try {
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: dataString,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+
+        await Share.share({
+          title: 'FieldPro Backup',
+          text: 'Exported data backup',
+          url: result.uri,
+          dialogTitle: 'Save Backup',
+        });
+      } catch (error) {
+        console.error('Error exporting data via Capacitor:', error);
+        // Fallback to browser method
+        const blob = new Blob([dataString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } else {
+      const blob = new Blob([dataString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const handleImportClick = () => {
@@ -1931,6 +2031,7 @@ const App: React.FC = () => {
     { id: 'targets', key: 'targetVsAchievement', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg> },
     { id: 'routes', key: 'smartRoute', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> },
     { id: 'expenses', key: 'expenses', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+    { id: 'competitors', key: 'competitorTracking', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" /></svg> },
   ];
 
   const addToCart = (product: Product) => {
@@ -2148,7 +2249,7 @@ const App: React.FC = () => {
 
   // Logic: Switched to UTF-8 Plain Text Report system to bypass browser/mobile binary parsing bugs 
   // that often misinterpret generated PDFs as "Encrypted" or "Password Protected".
-  const handleDownloadPDF = (order: Order) => {
+  const handleDownloadPDF = async (order: Order) => {
     const company = order.dealerName || 'FieldPro Sales';
     const proprietor = order.dealerProprietor || 'Official Distributor';
     const address = order.dealerAddress || 'Warehouse Center';
@@ -2158,13 +2259,42 @@ const App: React.FC = () => {
     const itemsList = order.items.map(i => `${i.productName} (x${i.quantity}) - ৳${calculateFinalPrice(i.price, i.discount) * i.quantity}`).join('\n');
     const reportText = `[ ${company} ]\n${proprietor}\n${address}\nPhone: ${phone}\n${note ? `Note: ${note}\n` : ''}\n----------------------------\nINVOICE: ${order.id.slice(-6)}\nDATE: ${order.date}\nCUSTOMER: ${order.shopName}\n----------------------------\nSUMMARY:\n${itemsList}\n----------------------------\nTOTAL: ৳${order.total}\n----------------------------\nSystem Generated Receipt`;
     
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Receipt_${order.id.slice(-6)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const fileName = `Receipt_${order.id.slice(-6)}.txt`;
+
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+      try {
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: reportText,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+
+        await Share.share({
+          title: 'Order Receipt',
+          text: `Receipt for order ${order.id.slice(-6)}`,
+          url: result.uri,
+          dialogTitle: 'Save Receipt',
+        });
+      } catch (error) {
+        console.error('Error downloading receipt via Capacitor:', error);
+        const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } else {
+      const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   // Logic helper: Updates the rendering sequence to use a 2-column grid for paired shop metadata
@@ -2643,6 +2773,92 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {view === 'Competitors' && (
+          <div className="flex flex-col h-full gap-3 animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input 
+                  type="text" 
+                  placeholder={lang === 'en' ? 'Search competitors or products...' : 'প্রতিযোগী বা পণ্য খুঁজুন...'} 
+                  className="w-full bg-white dark:bg-slate-900 rounded-xl py-2.5 pl-10 pr-4 text-xs shadow-sm border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                  value={competitorSearch} 
+                  onChange={(e) => setCompetitorSearch(e.target.value)} 
+                />
+                <svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <button 
+                onClick={() => { setTempCompetitorTrack({}); setIsAddingCompetitorTrack(true); }} 
+                className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-95 hover:bg-indigo-700"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pb-24 space-y-3 scrollbar-hide">
+              {competitorTracks.filter(t => 
+                t.competitorName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
+                t.productName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
+                t.shopName.toLowerCase().includes(competitorSearch.toLowerCase())
+              ).length > 0 ? (
+                competitorTracks.filter(t => 
+                  t.competitorName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
+                  t.productName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
+                  t.shopName.toLowerCase().includes(competitorSearch.toLowerCase())
+                ).map(track => (
+                  <div key={track.id} className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex gap-3 relative group">
+                    <div className="w-16 h-16 rounded-xl bg-slate-50 dark:bg-slate-800 flex-shrink-0 overflow-hidden border border-slate-100 dark:border-slate-700">
+                      {track.photo ? (
+                        <img src={track.photo} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-600">
+                          <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="flex justify-between items-start">
+                        <h5 className="font-bold text-slate-900 dark:text-slate-100 text-sm leading-tight">{track.competitorName}</h5>
+                        <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded uppercase">৳{track.price}</span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">{track.productName}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded uppercase truncate max-w-[120px]">{track.shopName}</span>
+                        <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500">{track.date}</span>
+                      </div>
+                      {track.offerDetails && (
+                        <div className="mt-2 p-1.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
+                          <p className="text-[9px] text-amber-700 dark:text-amber-500 leading-tight font-medium">{track.offerDetails}</p>
+                        </div>
+                      )}
+                    </div>
+                    <button 
+                      onClick={() => deleteCompetitorTrack(track.id)}
+                      className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="py-20 text-center">
+                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-300 dark:text-slate-600">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
+                    </svg>
+                  </div>
+                  <p className="text-slate-400 dark:text-slate-500 font-bold text-sm">{t('noTracks')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {view === 'History' && (
           <div className="h-full flex flex-col relative animate-fadeIn pb-24 overflow-hidden">
             {/* Logic: History Tab Toggle */}
@@ -2995,35 +3211,52 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-indigo-700 rounded-2xl p-4 text-white shadow-xl space-y-4 relative overflow-hidden">
-                  <div className="relative z-10">
-                    <h5 className="font-black text-[9px] uppercase tracking-widest opacity-70 mb-3 px-1 text-left">Data Management</h5>
-                    <div className="grid grid-cols-1 gap-2">
-                      <button 
-                        onClick={handleExportData}
-                        className="bg-white/10 hover:bg-white/20 border border-white/20 p-3 rounded-xl flex items-center justify-between transition-all active:scale-[0.98]"
-                      >
-                        <div className="text-left">
-                          <p className="font-bold text-xs">Export Local Backup</p>
-                          <p className="text-[9px] opacity-60">Saves shops, areas & route history as JSON</p>
-                        </div>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M16 9l-4 4m0 0l-4-4m4 4V4" /></svg>
-                      </button>
-
-                      <button 
-                        onClick={handleImportClick}
-                        className="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 p-3 rounded-xl flex items-center justify-between transition-all active:scale-[0.98]"
-                      >
-                        <div className="text-left">
-                          <p className="font-bold text-xs">Import Local Backup</p>
-                          <p className="text-[9px] opacity-80">Merge external file with existing data</p>
-                        </div>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 0l3 3m-3-3L9 7" /></svg>
-                      </button>
-                      <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
+                <div className="bg-white dark:bg-slate-800 p-5 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm space-y-4 relative overflow-hidden">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+                      <Database className="w-5 h-5" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Data Management</p>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">Backup & Restore</p>
                     </div>
                   </div>
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -translate-y-8 translate-x-8 blur-2xl"></div>
+
+                  <div className="grid grid-cols-1 gap-3 relative z-10">
+                    <button 
+                      onClick={handleExportData}
+                      className="bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-slate-100 dark:border-slate-700 p-4 rounded-2xl flex items-center justify-between group transition-all active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+                          <Download className="w-5 h-5" />
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Export Local Backup</p>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Saves shops, areas & route history as JSON</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors" />
+                    </button>
+
+                    <button 
+                      onClick={handleImportClick}
+                      className="bg-slate-50 dark:bg-slate-900/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-slate-100 dark:border-slate-700 p-4 rounded-2xl flex items-center justify-between group transition-all active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+                          <Upload className="w-5 h-5" />
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Import Local Backup</p>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Merge external file with existing data</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-400 transition-colors" />
+                    </button>
+                    <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
+                  </div>
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 dark:bg-indigo-900/10 rounded-full -translate-y-12 translate-x-12 blur-3xl pointer-events-none"></div>
                 </div>
 
                 <div className="bg-slate-100 dark:bg-slate-900 p-4 rounded-2xl text-center space-y-1">
@@ -3040,58 +3273,87 @@ const App: React.FC = () => {
       {/* --- Dealer List Overlay (From Quick Access) --- */}
       {showDealersList && (
         <div className="fixed inset-0 z-[4500] bg-slate-50 flex flex-col animate-fadeIn overflow-hidden">
-          <header className="bg-indigo-700 text-white p-4 shadow-lg flex items-center gap-4 shrink-0">
+          <header className="bg-white border-b border-slate-200 p-4 flex items-center gap-4 shrink-0">
             <button 
               onClick={() => setShowDealersList(false)} 
-              className="p-2 hover:bg-white/10 rounded-xl transition-all active:scale-90"
+              className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-all active:scale-90"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
             </button>
             <div className="flex-1 min-w-0 text-left">
-              <h3 className="text-lg font-black uppercase tracking-tight">{t('dealerDistributor')}</h3>
-              <p className="text-[10px] text-indigo-200 font-bold uppercase tracking-widest">{activeDealers.length} Registered Partners</p>
+              <h3 className="text-base font-black text-slate-900 uppercase tracking-tight leading-none">{t('dealerDistributor')}</h3>
+              <p className="text-[9px] text-indigo-600 font-black uppercase tracking-[0.1em] mt-1">
+                {activeDealers.length} {activeDealers.length === 1 ? 'Registered Partner' : 'Registered Partners'}
+              </p>
             </div>
+            <button 
+              onClick={() => { setShowDealersList(false); setView('Settings'); setEditingDealer({}); setIsEditingDealer(true); }}
+              className="p-2 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-100 active:scale-95 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
           </header>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide">
             {activeDealers.length > 0 ? (
               activeDealers.map(dealer => (
-                <div key={dealer.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm space-y-3 group text-left">
+                <div key={dealer.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all group flex flex-col gap-3 text-left">
                   <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{dealer.companyName}</p>
-                      <h4 className="text-lg font-black text-slate-800 leading-tight">{dealer.dealerName}</h4>
+                    <div className="flex gap-3 items-center min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-black text-xs shrink-0 border border-indigo-100">
+                        {dealer.dealerName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-black text-indigo-500 uppercase tracking-wider truncate">{dealer.companyName}</p>
+                        <h4 className="text-sm font-bold text-slate-900 truncate leading-tight">{dealer.dealerName}</h4>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                       <button onClick={() => { setEditingDealer(dealer); setIsEditingDealer(true); }} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                       <button onClick={(e) => deleteDealer(dealer.id, e)} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                    <div className="flex gap-1 shrink-0">
+                       <button onClick={() => { setEditingDealer(dealer); setIsEditingDealer(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Pencil className="w-3.5 h-3.5" /></button>
+                       <button onClick={(e) => deleteDealer(dealer.id, e)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    <span className="truncate">{dealer.address}</span>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                      <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                      <span className="truncate">{dealer.address}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a href={`tel:${dealer.phone}`} className="flex items-center gap-1.5 text-[11px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100/50 hover:bg-indigo-100 transition-all">
+                        <Phone className="w-3 h-3" />
+                        {dealer.phone}
+                      </a>
+                    </div>
                   </div>
-                  
-                  <a href={`tel:${dealer.phone}`} className="inline-flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl text-indigo-600 font-black text-xs active:bg-indigo-50 transition-all border border-slate-100">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
-                    {dealer.phone}
-                  </a>
                   
                   {dealer.description && (
-                    <div className="pt-2 border-t border-slate-50">
-                      <p className="text-[11px] text-slate-400 font-medium italic leading-relaxed line-clamp-2">"{dealer.description}"</p>
+                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                      <p className="text-[10px] text-slate-500 font-medium italic leading-relaxed line-clamp-2">"{dealer.description}"</p>
                     </div>
                   )}
                 </div>
               ))
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4">
-                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-300">
-                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+              <div className="h-full flex flex-col items-center justify-center text-center p-12 space-y-6">
+                <div className="relative">
+                  <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-200 animate-pulse">
+                    <Users className="w-12 h-12" />
+                  </div>
+                  <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-300 border border-slate-100">
+                    <Search className="w-5 h-5" />
+                  </div>
                 </div>
-                <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No dealers registered yet</p>
-                <button onClick={() => { setShowDealersList(false); setView('Settings'); setEditingDealer({}); setIsEditingDealer(true); }} className="text-indigo-600 font-black text-xs uppercase underline decoration-indigo-200">Go to Settings to add dealer</button>
+                <div className="space-y-2">
+                  <p className="text-slate-900 font-black uppercase tracking-widest text-xs">{t('noDealersFound') || 'No Partners Found'}</p>
+                  <p className="text-slate-400 text-[10px] max-w-[200px] mx-auto leading-relaxed">You haven't added any dealers or distributors to your network yet.</p>
+                </div>
+                <button 
+                  onClick={() => { setShowDealersList(false); setView('Settings'); setEditingDealer({}); setIsEditingDealer(true); }} 
+                  className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-100 active:scale-95 transition-all"
+                >
+                  Add Your First Partner
+                </button>
               </div>
             )}
           </div>
@@ -3596,6 +3858,7 @@ const App: React.FC = () => {
                     else if (item.id === 'targets') setShowTargetVsAchievement(true);
                     else if (item.id === 'routes') setShowSmartRoute(true);
                     else if (item.id === 'expenses') setShowExpensesModal(true);
+                    else if (item.id === 'competitors') setView('Competitors');
                     setShowQuickAccess(false);
                   }}>
                   <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">{item.icon}</div>
@@ -4045,6 +4308,109 @@ const App: React.FC = () => {
               </div>
               <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('photo')}</label><div className="flex items-center gap-3"><input type="file" accept="image/*" className="hidden" id="photo-upload" onChange={handlePhotoUpload} /><label htmlFor="photo-upload" className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg text-[10px] font-black border border-indigo-100 cursor-pointer transition-all active:scale-95 hover:bg-indigo-100 uppercase tracking-widest">Capture Photo</label>{editingShop?.photo && <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg overflow-hidden border border-indigo-200"><img src={editingShop.photo} className="w-full h-full object-cover" /></div><span className="text-[9px] text-emerald-500 font-black uppercase">✓ OK</span></div>}</div></div>
               <div className="pt-1 flex gap-2"><button type="submit" className="flex-1 bg-indigo-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-indigo-700">{t('save')}</button><button type="button" onClick={() => setIsEditingShop(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-slate-200">{t('cancel')}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isAddingCompetitorTrack && (
+        <div className="fixed inset-0 z-[600] bg-slate-900/60 backdrop-blur-sm p-3 flex justify-center overflow-y-auto items-start md:items-center">
+          <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-scaleUp my-2 md:my-4">
+            <div className="p-4 bg-indigo-700 text-white flex justify-between items-center">
+              <h3 className="text-sm font-bold uppercase tracking-wider">{t('competitorTracking')}</h3>
+              <button onClick={() => setIsAddingCompetitorTrack(false)} className="transition-all active:scale-90">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={saveCompetitorTrack} className="p-4 space-y-3 text-left">
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('shop')}</label>
+                <select 
+                  required 
+                  className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  value={tempCompetitorTrack.shopId || ''} 
+                  onChange={e => setTempCompetitorTrack(prev => ({ ...prev, shopId: e.target.value }))}
+                >
+                  <option value="">{t('selectShop')}</option>
+                  {activeShops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('competitorName')}</label>
+                  <input 
+                    required 
+                    type="text" 
+                    className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                    value={tempCompetitorTrack.competitorName || ''} 
+                    onChange={e => setTempCompetitorTrack(prev => ({ ...prev, competitorName: e.target.value }))} 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('productName')}</label>
+                  <input 
+                    required 
+                    type="text" 
+                    className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                    value={tempCompetitorTrack.productName || ''} 
+                    onChange={e => setTempCompetitorTrack(prev => ({ ...prev, productName: e.target.value }))} 
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('price')}</label>
+                  <input 
+                    required 
+                    type="number" 
+                    className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                    value={tempCompetitorTrack.price || ''} 
+                    onChange={e => setTempCompetitorTrack(prev => ({ ...prev, price: e.target.value }))} 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('offerDetails')}</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. 10% Off" 
+                    className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                    value={tempCompetitorTrack.offerDetails || ''} 
+                    onChange={e => setTempCompetitorTrack(prev => ({ ...prev, offerDetails: e.target.value }))} 
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('photo')}</label>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    id="competitor-photo-upload" 
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setTempCompetitorTrack(prev => ({ ...prev, photo: reader.result as string }));
+                        reader.readAsDataURL(file);
+                      }
+                    }} 
+                  />
+                  <label htmlFor="competitor-photo-upload" className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg text-[10px] font-black border border-indigo-100 cursor-pointer transition-all active:scale-95 hover:bg-indigo-100 uppercase tracking-widest">Capture Photo</label>
+                  {tempCompetitorTrack.photo && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg overflow-hidden border border-indigo-200">
+                        <img src={tempCompetitorTrack.photo} className="w-full h-full object-cover" />
+                      </div>
+                      <span className="text-[9px] text-emerald-500 font-black uppercase">✓ OK</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="pt-1 flex gap-2">
+                <button type="submit" className="flex-1 bg-indigo-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-indigo-700">{t('save')}</button>
+                <button type="button" onClick={() => setIsAddingCompetitorTrack(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-slate-200">{t('cancel')}</button>
+              </div>
             </form>
           </div>
         </div>
