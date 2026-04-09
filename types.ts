@@ -4,6 +4,7 @@ export interface GeoLocation {
   lng: number;
   heading?: number | null;
   speed?: number | null;
+  accuracy?: number | null;
 }
 
 export interface Area {

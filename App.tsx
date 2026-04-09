@@ -7,7 +7,7 @@ import { Geolocation } from '@capacitor/geolocation';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { registerPlugin } from '@capacitor/core';
-import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight, Play, Pause, Navigation, Phone, Trash2, Download, Upload, Database } from 'lucide-react';
+import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight, Play, Pause, Navigation, Phone, Trash2, Download, Upload, Database, RefreshCw } from 'lucide-react';
 
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
 import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense, UserProfile, NotificationPreferences, Place, CompetitorTrack } from './types';
@@ -246,15 +246,38 @@ const MiniMap = ({ location, label }: { location: GeoLocation; label?: string })
 };
 
 // --- Sub-Component: Header ---
-const Header = ({ title, location, lang, onLangToggle, isTracking, onTrackingToggle, onKebabToggle, showKebab, t }: any) => (
+const Header = ({ title, location, lang, onLangToggle, isTracking, onTrackingToggle, onKebabToggle, showKebab, t, onRefreshLocation, lastUpdated }: any) => (
   <header className="sticky top-0 z-50 bg-indigo-700 dark:bg-indigo-900 text-white p-3 sm:p-4 shadow-lg transition-colors">
     <div className="flex justify-between items-center max-w-4xl mx-auto gap-2">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h1 className="text-base sm:text-xl font-bold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">{title}</h1>
         {location && (
-          <p className="text-[8px] sm:text-[10px] text-indigo-200 font-mono">
-            GPS: {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
-          </p>
+          <div className="flex flex-col items-start">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[8px] sm:text-[10px] text-indigo-200 font-mono">
+                GPS: {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+              </p>
+              <button 
+                onClick={onRefreshLocation}
+                className="p-1 hover:bg-white/10 rounded-full transition-all active:rotate-180 duration-500"
+                title="Refresh Location"
+              >
+                <svg className="w-2.5 h-2.5 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              {location.accuracy && (
+                <p className={`text-[7px] font-black uppercase tracking-tighter ${location.accuracy < 15 ? 'text-emerald-400' : location.accuracy < 30 ? 'text-amber-400' : 'text-rose-400'}`}>
+                  ±{Math.round(location.accuracy)}m
+                </p>
+              )}
+              {lastUpdated && (
+                <p className="text-[7px] font-bold text-indigo-300 uppercase tracking-tighter">
+                  Updated: {new Date(lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </p>
+              )}
+            </div>
+          </div>
         )}
       </div>
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -585,11 +608,11 @@ const App: React.FC = () => {
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
     const saved = localStorage.getItem('fieldpro_range');
-    return saved ? Number(saved) : 1;
+    return saved ? Number(saved) : 20; // Increased default to 20m
   });
   const [nearbyRange, setNearbyRange] = useState<number>(() => {
     const saved = localStorage.getItem('fieldpro_nearby_range');
-    return saved ? Number(saved) : 20;
+    return saved ? Number(saved) : 100; // Increased default to 100m
   });
 
   const [view, setView] = useState<AppView>(() => {
@@ -597,6 +620,7 @@ const App: React.FC = () => {
     return (saved as AppView) || 'Dashboard';
   });
   const [currentLocation, setCurrentLocation] = useState<GeoLocation | null>(null);
+  const [lastLocationUpdateTime, setLastLocationUpdateTime] = useState<number>(0);
   const [isTracking, setIsTracking] = useState(() => {
     return localStorage.getItem('fieldpro_is_tracking') === 'true';
   });
@@ -796,14 +820,35 @@ const App: React.FC = () => {
   // --- Kalman Filter Logic State ---
   const kalmanStateRef = useRef<{ lat: number; lng: number; variance: number }>({ lat: 0, lng: 0, variance: -1 });
 
-  const applyKalmanFilter = (newLat: number, newLng: number, accuracy: number) => {
+  const applyKalmanFilter = useCallback((newLat: number, newLng: number, accuracy: number, forceReset: boolean = false) => {
     const state = kalmanStateRef.current;
-    if (state.variance < 0) {
+    
+    // Warning: Check if coordinates are within Bangladesh bounds
+    if (newLat < 20 || newLat > 27 || newLng < 87 || newLng > 93) {
+      console.warn("Raw GPS coordinates outside Bangladesh bounds:", newLat, newLng);
+    }
+
+    if (state.variance < 0 || forceReset) {
       kalmanStateRef.current = { lat: newLat, lng: newLng, variance: accuracy * accuracy };
       return { lat: newLat, lng: newLng };
     } else {
-      const q = 0.000001; 
-      const r = accuracy * accuracy; 
+      // Check for sudden large jumps (e.g. > 30m) and reset filter if needed
+      // 30m is a very aggressive reset to ensure responsiveness when moving between shops
+      const jumpDist = calculateDistance({ lat: state.lat, lng: state.lng }, { lat: newLat, lng: newLng });
+      if (jumpDist > 30) {
+        kalmanStateRef.current = { lat: newLat, lng: newLng, variance: accuracy * accuracy };
+        return { lat: newLat, lng: newLng };
+      }
+
+      // Dynamic process noise: if moving, increase noise to follow path better
+      // q is in degrees squared equivalent. 0.0001 degrees is ~11m.
+      // We use a much larger q here to ensure the filter doesn't "stick"
+      // Increased to 0.001 for near-instant response to movement
+      const q = 0.001; 
+      
+      // Cap r (measurement noise) to ensure the filter doesn't ignore new data even if accuracy is poor
+      const r = Math.min(accuracy * accuracy, 225); // Cap at 15m accuracy equivalent for even more trust in raw data
+      
       state.variance += q;
       const k = state.variance / (state.variance + r);
       state.lat += k * (newLat - state.lat);
@@ -811,16 +856,89 @@ const App: React.FC = () => {
       state.variance = (1 - k) * state.variance;
       return { lat: state.lat, lng: state.lng };
     }
-  };
+  }, []);
+
+  const handlePositionUpdate = useCallback((pos: any) => {
+    const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
+    const newLoc = { 
+      lat: smoothed.lat, 
+      lng: smoothed.lng,
+      heading: pos.coords.heading,
+      speed: pos.coords.speed,
+      accuracy: pos.coords.accuracy
+    };
+    setCurrentLocation(newLoc);
+    setLastLocationUpdateTime(Date.now());
+    
+    // Safety check for shopsRef
+    if (shopsRef.current) {
+      shopsRef.current.forEach(shop => {
+        const dist = calculateDistance(newLoc, shop.location);
+        // Use a slightly larger range for alerts than for "Current Spot" detection to give early warning
+        const alertRange = Math.max(detectionRange * 1.5, 30);
+        if (dist < alertRange) { 
+          if (!alertedShopsRef.current.has(shop.id)) {
+            setAlertInfo({ 
+              show: true, 
+              title: t('nearbyAlert'),
+              message: <><span className="font-black underline decoration-white/20">{shop.name}</span>{` (${shop.ownerName}) ${t('within100m')}`}</>,
+              type: 'error'
+            });
+            alertedShopsRef.current.add(shop.id);
+          }
+        } else if (dist > 100) {
+          alertedShopsRef.current.delete(shop.id);
+        }
+      });
+    }
+
+    if (isTrackingRef.current && activeRouteRef.current) {
+      const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
+      const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
+      if (displacement >= 3) {
+        setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
+      }
+      if (lastStopCheckLocRef.current) {
+        const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
+        if (staticDist < 15) {
+          staticTimeCounterRef.current += 1;
+          if (staticTimeCounterRef.current === 3) {
+            const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
+            const near = shopsByD[0];
+            const areaName = near && near.d < 100 
+              ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
+              : 'Field Point';
+            setActiveRoute(prev => {
+              if (!prev) return null;
+              const newStop: StopPoint = {
+                location: newLoc,
+                areaName: areaName,
+                stopNumber: prev.stops.length + 1,
+                timestamp: Date.now()
+              };
+              return { ...prev, stops: [...prev.stops, newStop] };
+            });
+          }
+        } else {
+          staticTimeCounterRef.current = 0;
+          lastStopCheckLocRef.current = newLoc;
+        }
+      } else {
+        lastStopCheckLocRef.current = newLoc;
+      }
+    }
+  }, [applyKalmanFilter, detectionRange, lang]);
 
   useEffect(() => {
     const setupAppListeners = async () => {
       try {
         const { App } = await import('@capacitor/app');
         App.addListener('appStateChange', ({ isActive }) => {
-          if (isActive && isTracking) {
-            // Re-trigger wake lock and other active states when app comes back
-            console.log('App became active, checking tracking state...');
+          if (isActive) {
+            // Force a fresh location fix when app resumes to ensure UI is up-to-date
+            getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 }).then(pos => {
+              if (pos) handlePositionUpdate(pos);
+            }).catch(e => console.warn('Resume location fix failed:', e));
           }
         });
       } catch (e) {
@@ -828,7 +946,7 @@ const App: React.FC = () => {
       }
     };
     setupAppListeners();
-  }, [isTracking]);
+  }, [handlePositionUpdate]);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
   const [editingDealer, setEditingDealer] = useState<Partial<Dealer> | null>(null);
   const [showDealersList, setShowDealersList] = useState(false);
@@ -1117,7 +1235,10 @@ const App: React.FC = () => {
 
   const activeAreas = useMemo(() => areas.filter(a => !a.isArchived), [areas]);
   const activeRoutes = useMemo(() => routes.filter(r => !r.isArchived), [routes]);
-  const activeShops = useMemo(() => shops.filter(s => !s.isArchived && activeAreas.some(a => a.id === s.areaId)), [shops, activeAreas]);
+  // Safety: Include shops even if areaId is missing or invalid to prevent "disappearing shops"
+  const activeShops = useMemo(() => {
+    return shops.filter(s => !s.isArchived);
+  }, [shops]);
   const activePlaces = useMemo(() => places.filter(p => !p.isArchived), [places]);
   
   useEffect(() => {
@@ -1202,6 +1323,21 @@ const App: React.FC = () => {
     setCompetitorTracks(prev => prev.filter(t => t.id !== id));
   };
 
+  const clearDemoData = () => {
+    const demoShopIds = ['s1', 's2', 's3'];
+    const demoAreaIds = ['1', '2', '3', '4'];
+    setShops(prev => prev.filter(s => !demoShopIds.includes(s.id)));
+    setAreas(prev => prev.filter(a => !demoAreaIds.includes(a.id)));
+    setAlertInfo({ show: true, title: 'Success', message: 'Demo data cleared successfully', type: 'success' });
+  };
+
+  const resetApp = () => {
+    if (window.confirm('Are you sure you want to reset the app? All your data will be permanently deleted.')) {
+      localStorage.clear();
+      window.location.reload();
+    }
+  };
+
   const [isEditingShop, setIsEditingShop] = useState(false);
   const [isManagingAreas, setIsManagingAreas] = useState(false);
   const [newAreaName, setNewAreaName] = useState('');
@@ -1266,6 +1402,28 @@ const App: React.FC = () => {
     navigationTarget, alertInfo.show, isSavingRoute,
     showQuickAccess, selectedOrderForDetail, view
   ]);
+
+  // Location Watchdog: Restarts tracking if it gets stuck
+  useEffect(() => {
+    const watchdog = setInterval(() => {
+      const now = Date.now();
+      if (lastLocationUpdateTime > 0 && now - lastLocationUpdateTime > 30000) {
+        console.warn('Location tracking seems stuck. Force refreshing...');
+        getCurrentPosition({ enableHighAccuracy: true }).then(pos => {
+          if (pos) {
+            const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
+            setCurrentLocation({
+              lat: smoothed.lat,
+              lng: smoothed.lng,
+              accuracy: pos.coords.accuracy
+            });
+            setLastLocationUpdateTime(Date.now());
+          }
+        }).catch(console.error);
+      }
+    }, 15000);
+    return () => clearInterval(watchdog);
+  }, [lastLocationUpdateTime]);
 
   useEffect(() => {
     const isAnyModalOpen = 
@@ -1361,13 +1519,35 @@ const App: React.FC = () => {
   const nearbyShops = useMemo(() => {
     return shopsWithDistances
       .filter(shop => shop.distance <= nearbyRange)
-      .sort((a, b) => a.distance - b.distance);
+      .sort((a, b) => {
+        // Stability tie-breaker
+        if (Math.abs(a.distance - b.distance) < 1) {
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        }
+        return a.distance - b.distance;
+      });
   }, [shopsWithDistances, nearbyRange]);
 
   const atShop = useMemo(() => {
-    const withinRange = shopsWithDistances.filter(shop => shop.distance <= detectionRange);
-    if (withinRange.length === 0) return undefined;
-    return [...withinRange].sort((a, b) => a.distance - b.distance)[0];
+    // Per user request: The shop with the minimum distance in the nearby list should be the current spot
+    if (shopsWithDistances.length === 0) return undefined;
+    
+    // Sort all shops by distance to find the absolute closest one
+    const sortedShops = [...shopsWithDistances].sort((a, b) => {
+      if (Math.abs(a.distance - b.distance) < 1) {
+        return (a.createdAt || 0) - (b.createdAt || 0);
+      }
+      return a.distance - b.distance;
+    });
+
+    const closest = sortedShops[0];
+    
+    // Show as "Current Spot" if it's within a reasonable detection range (default 20m, max 50m)
+    if (closest.distance <= Math.max(detectionRange, 50)) {
+      return closest;
+    }
+    
+    return undefined;
   }, [shopsWithDistances, detectionRange]);
 
   useEffect(() => {
@@ -1397,7 +1577,7 @@ const App: React.FC = () => {
     } catch (e) {
       console.warn("Failed to save data to localStorage:", e);
     }
-  }, [shops, areas, routes, visits, products, orders, dealers, detectionRange, nearbyRange]);
+  }, [shops, areas, routes, visits, products, orders, dealers, places, detectionRange, nearbyRange]);
 
   useEffect(() => {
     // Initial location fetch
@@ -1437,7 +1617,7 @@ const App: React.FC = () => {
         // 1. Always start a standard Geolocation Watch for UI responsiveness while app is open
         try {
           watchId = await Geolocation.watchPosition(
-            { enableHighAccuracy: true, timeout: 10000 },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
             (pos) => {
               if (!pos) return;
               handlePositionUpdate(pos);
@@ -1459,7 +1639,7 @@ const App: React.FC = () => {
               } as any);
             },
             (err) => console.error('Browser Geolocation error:', err),
-            { enableHighAccuracy: true, timeout: 10000 }
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
           );
         }
 
@@ -1472,7 +1652,10 @@ const App: React.FC = () => {
                 backgroundTitle: "Tracking Active",
                 requestPermissions: true,
                 stale: false,
-                distanceFilter: 5
+                distanceFilter: 2, // More responsive background tracking
+                interval: 3000, // Update every 3 seconds
+                fastestInterval: 1000,
+                activitiesInterval: 1000
               },
               (location, error) => {
                 if (error) {
@@ -1501,68 +1684,6 @@ const App: React.FC = () => {
         }
       } catch (err) {
         console.error('Location services setup error:', err);
-      }
-    };
-
-    const handlePositionUpdate = (pos: any) => {
-      const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
-      const newLoc = { 
-        lat: smoothed.lat, 
-        lng: smoothed.lng,
-        heading: pos.coords.heading,
-        speed: pos.coords.speed
-      };
-      setCurrentLocation(newLoc);
-      shopsRef.current.forEach(shop => {
-        const dist = calculateDistance(newLoc, shop.location);
-        if (dist < 40) { 
-          if (!alertedShopsRef.current.has(shop.id)) {
-            setAlertInfo({ 
-              show: true, 
-              title: t('nearbyAlert'),
-              message: <><span className="font-black underline decoration-white/20">{shop.name}</span>{` (${shop.ownerName}) ${t('within100m')}`}</>,
-              type: 'error'
-            });
-            alertedShopsRef.current.add(shop.id);
-          }
-        } else if (dist > 100) {
-          alertedShopsRef.current.delete(shop.id);
-        }
-      });
-      if (isTrackingRef.current && activeRouteRef.current) {
-        const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
-        const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
-        if (displacement >= 3) {
-          setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
-        }
-        if (lastStopCheckLocRef.current) {
-          const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
-          if (staticDist < 15) {
-            staticTimeCounterRef.current += 1;
-            if (staticTimeCounterRef.current === 3) {
-              const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
-              const near = shopsByD[0];
-              const areaName = near && near.d < 100 
-                ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
-                : 'Field Point';
-              setActiveRoute(prev => {
-                if (!prev) return null;
-                const newStop: StopPoint = {
-                  location: newLoc,
-                  areaName: areaName,
-                  stopNumber: prev.stops.length + 1,
-                  timestamp: Date.now()
-                };
-                return { ...prev, stops: [...prev.stops, newStop] };
-              });
-            }
-          } else {
-            staticTimeCounterRef.current = 0;
-            lastStopCheckLocRef.current = newLoc;
-          }
-        } else {
-          lastStopCheckLocRef.current = newLoc;
-        }
       }
     };
 
@@ -1648,23 +1769,77 @@ const App: React.FC = () => {
   };
 
   const initAddShop = useCallback(async () => {
-    let loc = { lat: 23.8103, lng: 90.4125 };
-    try {
-      const pos = await getCurrentPosition({ enableHighAccuracy: true, timeout: 6000 });
-      loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-    } catch (e) {
-      if (currentLocation) loc = { lat: currentLocation.lat, lng: currentLocation.lng };
-    }
-    setEditingShop({ location: { lat: Number(loc.lat), lng: Number(loc.lng) } }); 
     setIsEditingShop(true);
-  }, [currentLocation]);
+    setEditingShop({ 
+      name: '', 
+      ownerName: '', 
+      phone: '', 
+      areaId: activeAreas.length > 0 ? activeAreas[0].id : '',
+      location: currentLocation || { lat: 23.8103, lng: 90.4125 } 
+    });
+    
+    try {
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Getting Location" : "লোকেশন নেওয়া হচ্ছে",
+        message: lang === 'en' ? "Fetching fresh GPS coordinates..." : "নতুন জিপিএস কোঅর্ডিনেট নেওয়া হচ্ছে...",
+        type: 'info'
+      });
+      
+      const pos = await getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      const freshLoc = { 
+        lat: Number(Number(pos.coords.latitude).toFixed(7)), 
+        lng: Number(Number(pos.coords.longitude).toFixed(7)),
+        accuracy: pos.coords.accuracy
+      };
+      
+      setEditingShop(prev => prev ? ({ ...prev, location: freshLoc }) : null);
+      
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Location Ready" : "লোকেশন পাওয়া গেছে",
+        message: lang === 'en' ? `Accuracy: ±${Math.round(pos.coords.accuracy || 0)}m` : `নির্ভুলতা: ±${Math.round(pos.coords.accuracy || 0)}মি`,
+        type: 'success'
+      });
+    } catch (e) {
+      if (currentLocation) {
+        setEditingShop(prev => prev ? ({ ...prev, location: { lat: currentLocation.lat, lng: currentLocation.lng, accuracy: currentLocation.accuracy } }) : null);
+        setAlertInfo({
+          show: true,
+          title: lang === 'en' ? "Using Last Known" : "পূর্বের লোকেশন ব্যবহার করা হচ্ছে",
+          message: lang === 'en' ? "Could not get fresh GPS. Using last known position." : "নতুন জিপিএস পাওয়া যায়নি। পূর্বের অবস্থান ব্যবহার করা হচ্ছে।",
+          type: 'info'
+        });
+      }
+    }
+  }, [currentLocation, activeAreas, lang]);
 
   const saveShop = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingShop || !editingShop.name) return;
     const finalLocData = editingShop.location 
-      ? { lat: Number(editingShop.location.lat), lng: Number(editingShop.location.lng) }
-      : (currentLocation ? { lat: Number(currentLocation.lat), lng: Number(currentLocation.lng) } : { lat: 23.8103, lng: 90.4125 });
+      ? { lat: Number(Number(editingShop.location.lat).toFixed(7)), lng: Number(Number(editingShop.location.lng).toFixed(7)), accuracy: editingShop.location.accuracy }
+      : (currentLocation ? { lat: Number(currentLocation.lat.toFixed(7)), lng: Number(currentLocation.lng.toFixed(7)), accuracy: currentLocation.accuracy } : { lat: 23.8103000, lng: 90.4125000 });
+
+    // Validation: Ensure coordinates are within Bangladesh bounds to prevent extreme mismatches
+    // Bangladesh: Lat 20.5-26.6, Lng 88.0-92.7
+    if (finalLocData.lat < 20 || finalLocData.lat > 27 || finalLocData.lng < 87 || finalLocData.lng > 93) {
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Invalid Location" : "ভুল লোকেশন",
+        message: lang === 'en' ? "The captured location seems to be outside Bangladesh. Please check your GPS." : "লোকেশনটি বাংলাদেশের বাইরে মনে হচ্ছে। দয়া করে আপনার জিপিএস চেক করুন।",
+        type: 'error'
+      });
+      return;
+    }
+    
+    // Check if location is too inaccurate
+    if (finalLocData.accuracy && finalLocData.accuracy > 50) {
+      const confirmSave = window.confirm(lang === 'en' 
+        ? `Warning: GPS accuracy is low (±${Math.round(finalLocData.accuracy)}m). Save anyway?` 
+        : `সতর্কতা: জিপিএস সিগন্যাল দুর্বল (±${Math.round(finalLocData.accuracy)}মি)। তবুও কি সেভ করবেন?`);
+      if (!confirmSave) return;
+    }
     const finalShop: Shop = {
       id: editingShop.id || generateId(),
       name: editingShop.name || '',
@@ -1720,17 +1895,43 @@ const App: React.FC = () => {
 
   const captureCurrentLocation = async () => {
     try {
-      const pos = await getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 });
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Capturing..." : "লোকেশন নেওয়া হচ্ছে...",
+        message: lang === 'en' ? "Waiting for high-accuracy GPS fix..." : "উচ্চ-নির্ভুল জিপিএস সিগন্যালের জন্য অপেক্ষা করা হচ্ছে...",
+        type: 'info'
+      });
+
+      const pos = await getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      
+      if (pos.coords.accuracy && pos.coords.accuracy > 30) {
+        setAlertInfo({
+          show: true,
+          title: lang === 'en' ? "Weak Signal" : "দুর্বল সিগন্যাল",
+          message: lang === 'en' ? `GPS accuracy is too low (±${Math.round(pos.coords.accuracy)}m). Please move to an open area.` : `জিপিএস সিগন্যাল দুর্বল (±${Math.round(pos.coords.accuracy)}মি)। দয়া করে খোলা জায়গায় যান।`,
+          type: 'error'
+        });
+        return;
+      }
+
       const validatedLoc = { 
-        lat: Number(pos.coords.latitude), 
-        lng: Number(pos.coords.longitude)
+        lat: Number(Number(pos.coords.latitude).toFixed(7)), 
+        lng: Number(Number(pos.coords.longitude).toFixed(7)),
+        accuracy: pos.coords.accuracy
       };
       setEditingShop(prev => ({ ...prev, location: validatedLoc }));
+      
+      setAlertInfo({
+        show: true,
+        title: lang === 'en' ? "Success" : "সফল",
+        message: lang === 'en' ? `Location captured with ±${Math.round(pos.coords.accuracy || 0)}m accuracy.` : `±${Math.round(pos.coords.accuracy || 0)}মি নির্ভুলতার সাথে লোকেশন নেওয়া হয়েছে।`,
+        type: 'success'
+      });
     } catch (err) { 
       setAlertInfo({
         show: true,
         title: lang === 'en' ? "GPS Error" : "GPS ত্রুটি",
-        message: lang === 'en' ? "GPS retrieval failed." : "জিপিএস তথ্য পেতে ব্যর্থ হয়েছে।",
+        message: lang === 'en' ? "GPS retrieval failed. Ensure location is enabled." : "জিপিএস তথ্য পেতে ব্যর্থ হয়েছে। লোকেশন চালু আছে কিনা নিশ্চিত করুন।",
         type: 'error'
       });
     }
@@ -2519,12 +2720,45 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen ${isInRideMode ? 'h-screen pb-0' : 'pb-24'} flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors`}>
       {!isInRideMode && !viewingRoute && !showCatalog && !viewingProduct && !showOrderSystem && !showDealersList && !showAnalytics && !showSmartRoute && (
-        <Header title={t('appTitle')} location={currentLocation} lang={lang} 
+        <Header 
+          title={t('appTitle')} 
+          location={currentLocation} 
+          lang={lang} 
           onLangToggle={() => setLang(l => l === 'en' ? 'bn' : 'en')}
-          isTracking={isTracking} onTrackingToggle={toggleTracking} 
+          isTracking={isTracking} 
+          onTrackingToggle={toggleTracking} 
           onKebabToggle={() => setShowQuickAccess(true)}
           showKebab={true}
           t={t}
+          lastUpdated={lastLocationUpdateTime}
+          onRefreshLocation={async () => {
+            try {
+              const pos = await getCurrentPosition({ enableHighAccuracy: true });
+              if (pos) {
+                // Force reset Kalman filter on manual refresh to clear any "stuck" state
+                const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10, true);
+                setCurrentLocation({
+                  lat: smoothed.lat,
+                  lng: smoothed.lng,
+                  accuracy: pos.coords.accuracy
+                });
+                setLastLocationUpdateTime(Date.now());
+                setAlertInfo({ 
+                  show: true, 
+                  title: lang === 'en' ? 'Success' : 'সফল', 
+                  message: lang === 'en' ? 'Location refreshed and filter reset.' : 'লোকেশন রিফ্রেশ এবং ফিল্টার রিসেট করা হয়েছে।', 
+                  type: 'success' 
+                });
+              }
+            } catch (e) {
+              setAlertInfo({ 
+                show: true, 
+                title: lang === 'en' ? 'Error' : 'ত্রুটি', 
+                message: lang === 'en' ? 'Failed to refresh location' : 'লোকেশন রিফ্রেশ করতে ব্যর্থ হয়েছে।', 
+                type: 'error' 
+              });
+            }
+          }}
         />
       )}
       
@@ -2583,6 +2817,9 @@ const App: React.FC = () => {
                     </p>
                     <div className="flex items-center gap-2">
                       <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 leading-tight group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors duration-300">{atShop.name}</h2>
+                      <span className="bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                        {Math.round((atShop as any).distance)}m
+                      </span>
                       {isVisitedToday(atShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-sm border border-white/40"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
@@ -2643,7 +2880,9 @@ const App: React.FC = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
                           <p className="font-bold text-slate-800 dark:text-slate-100 text-xs leading-tight flex items-center gap-1">{shop.name}</p>
-                          <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1 py-0.5 rounded-md flex-shrink-0">{Math.round((shop as any).distance)}m</span>
+                          <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1 py-0.5 rounded-md flex-shrink-0">
+                            {Math.round((shop as any).distance) < 5 ? '0' : Math.round((shop as any).distance)}m
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                           <p className="text-[9px] text-slate-500 dark:text-slate-400">{shop.ownerName}</p>
@@ -2766,7 +3005,18 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  {isVisitedToday(shop.id) && <div className="absolute top-3 right-3 text-emerald-500 font-black text-[8px] uppercase tracking-widest flex items-center gap-1 bg-emerald-50 px-1.5 py-0.5 rounded-full">{t('visited')}</div>}
+                  <div className="flex flex-col items-end justify-between py-1">
+                    {isVisitedToday(shop.id) ? (
+                      <div className="text-emerald-500 font-black text-[8px] uppercase tracking-widest flex items-center gap-1 bg-emerald-50 px-1.5 py-0.5 rounded-full">{t('visited')}</div>
+                    ) : (
+                      <div className="h-4"></div>
+                    )}
+                    {currentLocation && (
+                      <div className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 shadow-sm">
+                        {Math.round(calculateDistance(currentLocation, shop.location))}m
+                      </div>
+                    )}
+                  </div>
                 </div>
               )) : <div className="col-span-full py-16 text-center"><p className="text-slate-400 font-bold text-sm">{t('noShops')}</p></div>}
             </div>
@@ -3254,6 +3504,24 @@ const App: React.FC = () => {
                       </div>
                       <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-400 transition-colors" />
                     </button>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={clearDemoData}
+                        className="bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-100 dark:border-amber-900/50 p-3 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95"
+                      >
+                        <Trash2 className="w-5 h-5 text-amber-600" />
+                        <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest">Clear Demo Data</span>
+                      </button>
+                      <button 
+                        onClick={resetApp}
+                        className="bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-100 dark:border-rose-900/50 p-3 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95"
+                      >
+                        <RefreshCw className="w-5 h-5 text-rose-600" />
+                        <span className="text-[9px] font-black text-rose-700 uppercase tracking-widest">Reset App</span>
+                      </button>
+                    </div>
+
                     <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
                   </div>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 dark:bg-indigo-900/10 rounded-full -translate-y-12 translate-x-12 blur-3xl pointer-events-none"></div>
@@ -4301,10 +4569,42 @@ const App: React.FC = () => {
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('birthday')}</label><input type="date" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.birthday || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, birthday: e.target.value }))} /></div>
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('anniversary')}</label><input type="date" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.anniversary || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, anniversary: e.target.value }))} /></div>
               </div>
-              <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
-                <div className="flex justify-between items-center mb-2"><label className="block text-[10px] font-black text-indigo-900 uppercase">{t('map')} Location</label><button type="button" onClick={captureCurrentLocation} className="bg-indigo-600 text-white text-[9px] font-bold px-2.5 py-1 rounded-full transition-all active:scale-95">Current GPS</button></div>
-                {editingShop?.location && <p className="text-[9px] text-indigo-400 font-mono mb-1.5">Lat: {editingShop.location.lat.toFixed(6)}, Lng: {editingShop.location.lng.toFixed(6)}</p>}
-                <div className="h-32 rounded-lg overflow-hidden border border-indigo-100"><LocationPickerMap initialLocation={editingShop?.location || { lat: 23.8103, lng: 90.4125 }} onChange={(newLoc) => setEditingShop(prev => ({ ...prev, location: { lat: Number(newLoc.lat), lng: Number(newLoc.lng) } }))} /></div>
+              <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black text-indigo-900 uppercase leading-none">{t('locationStatus')}</label>
+                      <p className={`text-[8px] font-bold flex items-center gap-1 mt-0.5 ${editingShop?.location?.accuracy && editingShop.location.accuracy > 30 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        <span className={`w-1 h-1 rounded-full animate-pulse ${editingShop?.location?.accuracy && editingShop.location.accuracy > 30 ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                        {editingShop?.location?.accuracy ? `${t('locationLocked')} (±${Math.round(editingShop.location.accuracy)}m)` : t('locationLocked')}
+                      </p>
+                    </div>
+                  </div>
+                  <button type="button" onClick={captureCurrentLocation} className="bg-indigo-600 text-white text-[8px] font-black px-2.5 py-1.5 rounded-lg transition-all active:scale-95 shadow-sm uppercase tracking-tight">
+                    {t('updateLocation')}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white/80 dark:bg-slate-800/80 p-1.5 rounded-lg border border-indigo-100/50">
+                    <p className="text-[7px] font-black text-indigo-400 uppercase tracking-tighter mb-0.5">Latitude</p>
+                    <p className="text-[9px] font-mono font-bold text-slate-700 dark:text-slate-300">{editingShop?.location?.lat.toFixed(7)}</p>
+                  </div>
+                  <div className="bg-white/80 dark:bg-slate-800/80 p-1.5 rounded-lg border border-indigo-100/50">
+                    <p className="text-[7px] font-black text-indigo-400 uppercase tracking-tighter mb-0.5">Longitude</p>
+                    <p className="text-[9px] font-mono font-bold text-slate-700 dark:text-slate-300">{editingShop?.location?.lng.toFixed(7)}</p>
+                  </div>
+                </div>
+
+                <div className="h-32 rounded-lg overflow-hidden border border-indigo-100 shadow-inner">
+                  <LocationPickerMap 
+                    initialLocation={editingShop?.location || { lat: 23.8103, lng: 90.4125 }} 
+                    onChange={(newLoc) => setEditingShop(prev => ({ ...prev, location: { lat: Number(newLoc.lat), lng: Number(newLoc.lng) } }))} 
+                  />
+                </div>
               </div>
               <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('photo')}</label><div className="flex items-center gap-3"><input type="file" accept="image/*" className="hidden" id="photo-upload" onChange={handlePhotoUpload} /><label htmlFor="photo-upload" className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg text-[10px] font-black border border-indigo-100 cursor-pointer transition-all active:scale-95 hover:bg-indigo-100 uppercase tracking-widest">Capture Photo</label>{editingShop?.photo && <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg overflow-hidden border border-indigo-200"><img src={editingShop.photo} className="w-full h-full object-cover" /></div><span className="text-[9px] text-emerald-500 font-black uppercase">✓ OK</span></div>}</div></div>
               <div className="pt-1 flex gap-2"><button type="submit" className="flex-1 bg-indigo-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-indigo-700">{t('save')}</button><button type="button" onClick={() => setIsEditingShop(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-95 hover:bg-slate-200">{t('cancel')}</button></div>

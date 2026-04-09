@@ -268,5 +268,8 @@ export const TRANSLATIONS: Translations = {
   addTrack: { en: 'Add Competitor Info', bn: 'প্রতিযোগীর তথ্য যোগ করুন' },
   noTracks: { en: 'No competitor info recorded.', bn: 'কোনো প্রতিযোগীর তথ্য রেকর্ড নেই।' },
   selectShop: { en: 'Select Shop', bn: 'দোকান নির্বাচন করুন' },
-  shop: { en: 'Shop', bn: 'দোকান' }
+  shop: { en: 'Shop', bn: 'দোকান' },
+  locationStatus: { en: 'Location Status', bn: 'লোকেশন স্ট্যাটাস' },
+  locationLocked: { en: 'Locked & Secured', bn: 'লক এবং সুরক্ষিত' },
+  updateLocation: { en: 'Update Location', bn: 'লোকেশন আপডেট করুন' }
 };
