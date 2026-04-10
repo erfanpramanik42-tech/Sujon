@@ -143,7 +143,18 @@ export const SmartRouteOptimizer: React.FC<SmartRouteOptimizerProps> = ({
                     <h5 className="font-black text-slate-800 text-sm truncate uppercase tracking-tight">{shop.name}</h5>
                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">{shop.ownerName}</p>
                   </div>
-                  <button onClick={() => onStartNavigation(shop)} className="bg-indigo-50 text-indigo-600 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm">Go</button>
+                  <div className="flex gap-2">
+                    <button onClick={() => onStartNavigation(shop)} className="bg-indigo-50 text-indigo-600 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm">Go</button>
+                    <button 
+                      onClick={() => {
+                        const url = `https://www.google.com/maps/dir/?api=1&destination=${shop.location.lat},${shop.location.lng}&travelmode=driving`;
+                        window.open(url, '_blank');
+                      }} 
+                      className="bg-white border border-slate-100 p-3 rounded-2xl shadow-sm active:scale-95 transition-all"
+                    >
+                      <img src="https://www.google.com/images/branding/product/ico/maps15_24dp.png" className="w-4 h-4" alt="G" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

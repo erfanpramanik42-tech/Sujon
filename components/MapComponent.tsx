@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Navigation } from 'lucide-react';
 import { Shop, GeoLocation, SalesRoute, Area, Place } from '../types';
 import { calculateDistance } from '../services/locationService';
 
@@ -49,14 +50,14 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   const userMarkerRef = useRef<any>(null);
   const playbackMarkerRef = useRef<any>(null);
   const clusterGroupRef = useRef<any>(null);
-  const layersRef = useRef<{ street: any; satellite: any }>({ street: null, satellite: null });
+  const layersRef = useRef<{ street: any; satellite: any; google: any; hybrid: any }>({ street: null, satellite: null, google: null, hybrid: null });
   
   const [isFollowing, setIsFollowing] = useState(true);
   const [isHeadingUp, setIsHeadingUp] = useState(false);
   const [heading, setHeading] = useState(0);
   const [navSteps, setNavSteps] = useState<NavStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
+  const [mapType, setMapType] = useState<'street' | 'satellite' | 'google' | 'hybrid'>('google');
   const [isRouting, setIsRouting] = useState(false);
   const [routingError, setRoutingError] = useState<string | null>(null);
 
@@ -134,15 +135,18 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   };
 
   const toggleMapType = () => {
-    const nextType = mapType === 'street' ? 'satellite' : 'street';
+    const types: ('google' | 'hybrid' | 'street' | 'satellite')[] = ['google', 'hybrid', 'street', 'satellite'];
+    const currentIndex = types.indexOf(mapType);
+    const nextType = types[(currentIndex + 1) % types.length];
+    
     setMapType(nextType);
     if (leafletMap.current && layersRef.current) {
-      if (nextType === 'satellite') {
-        layersRef.current.street.remove();
-        layersRef.current.satellite.addTo(leafletMap.current);
-      } else {
-        layersRef.current.satellite.remove();
-        layersRef.current.street.addTo(leafletMap.current);
+      // Remove all layers first
+      Object.values(layersRef.current).forEach((layer: any) => layer?.remove());
+      
+      // Add the selected one
+      if (layersRef.current[nextType]) {
+        layersRef.current[nextType].addTo(leafletMap.current);
       }
     }
   };
@@ -206,8 +210,24 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         maxZoom: 20 
       }).setView([23.8103, 90.4125], 13);
 
-      layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20 }).addTo(leafletMap.current);
-      layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20 });
+      layersRef.current.street = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+      });
+      layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 20
+      });
+      layersRef.current.google = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+      }).addTo(leafletMap.current);
+      layersRef.current.hybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+      });
       
       // Algorithm Fix: Disable auto-centering when user interacts with the map
       leafletMap.current.on('dragstart', () => setIsFollowing(false));
@@ -280,25 +300,19 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       const area = areas.find(a => a.id === shop.areaId);
       const isVisited = visitedShopIds.includes(shop.id);
       
-      const marker = L.circleMarker([shop.location.lat, shop.location.lng], {
-        radius: isVisited ? 4 : 2.5,
-        fillColor: isVisited ? '#10b981' : '#4f46e5',
-        color: '#fff',
-        weight: 1,
-        fillOpacity: 1
+      const marker = L.marker([shop.location.lat, shop.location.lng], {
+        icon: L.divIcon({
+          className: 'shop-pin-marker',
+          html: `<div class="shop-pin-container ${isVisited ? 'visited' : ''}">
+            <div class="shop-pin-head">
+              <div class="shop-pin-inner"></div>
+            </div>
+            <div class="shop-pin-label">${shop.name}</div>
+          </div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 20]
+        })
       }).addTo(leafletMap.current);
-      
-      marker.bindTooltip(`
-        <div class="shop-marker-label">
-          <p class="shop-name">${shop.name}</p>
-          <p class="shop-area">${area?.name || 'Area'}</p>
-        </div>
-      `, {
-        permanent: true,
-        direction: 'top',
-        offset: [0, -5],
-        className: 'custom-tooltip'
-      }).openTooltip();
       
       marker.on('click', () => onShopClick?.(shop));
       markersRef.current.push(marker);
@@ -481,7 +495,17 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       setIsRouting(true);
       setRoutingError(null);
       try {
-        const url = `https://router.project-osrm.org/route/v1/${profile}/${currentLocation.lng},${currentLocation.lat};${navigationTarget.location.lng},${navigationTarget.location.lat}?steps=true&geometries=geojson&overview=full&continue_straight=true&radiuses=1000;1000`;
+        const googleApiKey = process.env.GEMINI_API_KEY;
+        let url = "";
+        let isGoogle = false;
+
+        if (googleApiKey && googleApiKey.length > 20) {
+          url = `https://maps.googleapis.com/maps/api/directions/json?origin=${currentLocation.lat},${currentLocation.lng}&destination=${navigationTarget.location.lat},${navigationTarget.location.lng}&mode=${profile === 'driving' ? 'driving' : 'walking'}&key=${googleApiKey}`;
+          isGoogle = true;
+        } else {
+          url = `https://router.project-osrm.org/route/v1/${profile}/${currentLocation.lng},${currentLocation.lat};${navigationTarget.location.lng},${navigationTarget.location.lat}?steps=true&geometries=geojson&overview=full&continue_straight=true&radiuses=1000;1000`;
+        }
+
         const response = await fetch(url, { signal: controller.signal });
         
         if (!response.ok) {
@@ -496,11 +520,43 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         const data = await response.json();
         if (!leafletMap.current || !navigationTarget) return;
 
-        if (data.routes && data.routes[0]) {
+        // @ts-ignore
+        const L = window.L;
+
+        if (isGoogle && data.status === "OK") {
+          const route = data.routes[0];
+          const points = decodeGooglePolyline(route.overview_polyline.points);
+          
+          if (roadNavLineRef.current) roadNavLineRef.current.remove();
+          
+          if (leafletMap.current) {
+            roadNavLineRef.current = L.polyline(points, { color: '#4285F4', weight: 6, opacity: 0.9 }).addTo(leafletMap.current);
+            
+            if (lastFitTargetId.current !== navigationTarget.id) {
+                leafletMap.current.fitBounds(roadNavLineRef.current.getBounds(), { 
+                    padding: [50, 50],
+                    animate: true,
+                    duration: 1.2
+                });
+                lastFitTargetId.current = navigationTarget.id;
+                setIsFollowing(false);
+            }
+          }
+
+          const steps = route.legs[0].steps.map((s: any) => ({
+            instruction: s.html_instructions.replace(/<[^>]*>?/gm, ''),
+            modifier: s.maneuver || 'straight',
+            distance: s.distance.value,
+            location: [s.end_location.lat, s.end_location.lng]
+          }));
+          setNavSteps(steps);
+          setCurrentStepIndex(0);
+          lastRoutingLocation.current = currentLocation;
+
+        } else if (!isGoogle && data.routes && data.routes[0]) {
           const route = data.routes[0];
           const coords = route.geometry.coordinates.map((c: any) => [c[1], c[0]]);
-          // @ts-ignore
-          const L = window.L;
+          
           if (roadNavLineRef.current) roadNavLineRef.current.remove();
           
           if (leafletMap.current) {
@@ -530,7 +586,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
           if (profile === 'driving') {
             await fetchRoute('walking');
           } else {
-            setRoutingError('No route found');
+            setRoutingError(isGoogle ? `Google Error: ${data.status}` : 'No route found');
           }
         }
       } catch (err: any) {
@@ -541,6 +597,33 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       } finally {
         setIsRouting(false);
       }
+    };
+
+    const decodeGooglePolyline = (encoded: string) => {
+      const points = [];
+      let index = 0, len = encoded.length;
+      let lat = 0, lng = 0;
+      while (index < len) {
+        let b, shift = 0, result = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += dlat;
+        shift = 0;
+        result = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += dlng;
+        points.push([lat / 1e5, lng / 1e5]);
+      }
+      return points;
     };
     fetchRoute();
 
@@ -577,16 +660,90 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     }
   };
 
+  const [showGoogleNav, setShowGoogleNav] = useState(false);
+  const [initialNavLocation, setInitialNavLocation] = useState<GeoLocation | null>(null);
+  const lastUpdateLocation = useRef<GeoLocation | null>(null);
+
+  useEffect(() => {
+    if (showGoogleNav && currentLocation) {
+      if (!initialNavLocation) {
+        setInitialNavLocation(currentLocation);
+        lastUpdateLocation.current = currentLocation;
+      } else {
+        // Auto-sync if moved more than 50 meters to avoid constant blinking but keep updated
+        const dist = calculateDistance(currentLocation, lastUpdateLocation.current!);
+        if (dist > 0.05) { // 50 meters
+          setInitialNavLocation(currentLocation);
+          lastUpdateLocation.current = currentLocation;
+        }
+      }
+    } else if (!showGoogleNav) {
+      setInitialNavLocation(null);
+      lastUpdateLocation.current = null;
+    }
+  }, [showGoogleNav, currentLocation]);
+
   return (
-    <div className="relative w-full h-full min-h-[300px] overflow-hidden flex-1">
+    <div className="relative w-full h-full bg-slate-100 overflow-hidden">
       <div ref={mapRef} className="absolute inset-0 z-0 w-full h-full" />
-      {navigationTarget && (
+      
+      {/* Google Live Navigation Embed */}
+      {navigationTarget && showGoogleNav && (
+        <div className="absolute inset-0 z-[100] bg-white animate-slideUp flex flex-col">
+          <div className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg shadow-lg shadow-indigo-500/20">
+                <Navigation className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-tight">Google Live Nav</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">To: {navigationTarget.name}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">Auto-Sync ON</span>
+              </div>
+              <button 
+                onClick={() => setShowGoogleNav(false)}
+                className="bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-all active:scale-90"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 relative bg-slate-50">
+            <iframe
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              style={{ border: 0 }}
+              src={`https://maps.google.com/maps?f=d&saddr=${initialNavLocation?.lat || currentLocation?.lat},${initialNavLocation?.lng || currentLocation?.lng}&daddr=${navigationTarget.location.lat},${navigationTarget.location.lng}&hl=en&ie=UTF8&t=m&z=15&iwloc=B&output=embed`}
+              allowFullScreen
+              title="Google Maps Navigation"
+            ></iframe>
+            
+            {/* Helpful Overlay for first-time users */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
+              <div className="bg-slate-900/80 backdrop-blur-md text-white px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest shadow-2xl border border-white/10">
+                Use two fingers to move map
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {navigationTarget && !showGoogleNav && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 w-[85%] max-w-sm pointer-events-auto" style={{ transform: `translate(calc(-50% + ${capsuleOffset.x}px), ${capsuleOffset.y}px)` }} onMouseDown={handleDragStart} onTouchStart={handleDragStart}>
           <div className="bg-slate-900/85 backdrop-blur-md text-white rounded-2xl p-2.5 shadow-2xl border border-white/10 flex items-center gap-3 animate-fadeIn select-none">
-            <div className="bg-indigo-600/90 w-12 h-12 rounded-xl shrink-0 flex flex-col items-center justify-center shadow-inner border border-white/10">
-               <span className="text-[14px] font-black leading-none mb-0.5">{getDirectionAlphabet(navSteps.length > 0 ? navSteps[currentStepIndex].modifier : 'straight')}</span>
-               {getDirectionIcon(navSteps.length > 0 ? navSteps[currentStepIndex].modifier : 'straight')}
-            </div>
+            <button 
+              onClick={() => setShowGoogleNav(true)}
+              className="bg-indigo-600/90 w-12 h-12 rounded-xl shrink-0 flex flex-col items-center justify-center shadow-inner border border-white/10 active:scale-95 transition-all"
+            >
+               <Navigation className="w-5 h-5" />
+               <span className="text-[8px] font-black uppercase mt-0.5">Live</span>
+            </button>
             <div className="flex-1 min-w-0">
                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 truncate mb-0.5">To: {navigationTarget.name}</p>
                <h3 className="text-[12px] font-bold leading-tight truncate">
@@ -594,6 +751,17 @@ export const MapComponent: React.FC<MapComponentProps> = ({
                </h3>
                {navSteps.length > 0 && <div className="flex items-center gap-2 mt-0.5"><span className="text-[10px] font-black text-white/70">{Math.round(navSteps[currentStepIndex].distance)}m</span><div className="flex-1 h-0.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-indigo-50 w-1/4"></div></div></div>}
             </div>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                const url = `https://www.google.com/maps/dir/?api=1&destination=${navigationTarget.location.lat},${navigationTarget.location.lng}&travelmode=driving`;
+                window.open(url, '_blank');
+              }} 
+              className="p-1.5 hover:bg-white/10 rounded-lg shrink-0 transition-colors"
+              title="Open in Google Maps App"
+            >
+              <img src="https://www.google.com/images/branding/product/ico/maps15_24dp.png" className="w-4 h-4" alt="G" />
+            </button>
             <button onClick={onStopNavigation} className="p-1.5 hover:bg-white/10 rounded-lg shrink-0 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         </div>
@@ -604,17 +772,44 @@ export const MapComponent: React.FC<MapComponentProps> = ({
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </button>
         )}
-        <button onClick={toggleMapType} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${mapType === 'satellite' ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
+        <button onClick={toggleMapType} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${(mapType === 'satellite' || mapType === 'hybrid') ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}>
+          <div className="relative">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <span className="absolute -top-1 -right-1 bg-white text-indigo-600 text-[6px] font-black px-0.5 rounded border border-indigo-100 uppercase">
+              {mapType === 'google' ? 'G' : mapType === 'hybrid' ? 'GH' : mapType === 'street' ? 'OSM' : 'S'}
+            </span>
+          </div>
+        </button>
         <button onClick={toggleFollow} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isFollowing ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
         <button onClick={toggleHeadingUp} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isHeadingUp ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ transform: `rotate(${isHeadingUp ? -heading : 0}deg)` }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button>
       </div>
       <style>{`
-        .leaflet-container { background: #f8fafc; height: 100%; width: 100%; }
+        .leaflet-container { background: #f1f3f4; height: 100%; width: 100%; }
         .user-dot-marker { z-index: 2000 !important; }
         .user-dot-container { position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: transform 0.1s linear; }
-        .user-dot { width: 10px; height: 10px; background: #4f46e5; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(79, 70, 229, 0.4); z-index: 2; }
-        .user-arrow { position: absolute; top: -3px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid #4f46e5; z-index: 1; }
-        .custom-tooltip { background: rgba(15, 23, 42, 0.8) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 3px !important; padding: 1px 3px !important; box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important; }
+        .user-dot { width: 12px; height: 12px; background: #4285F4; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(66, 133, 244, 0.4); z-index: 2; }
+        .user-arrow { position: absolute; top: -4px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #4285F4; z-index: 1; }
+        
+        .shop-pin-marker { pointer-events: auto; }
+        .shop-pin-container { display: flex; flex-direction: column; align-items: center; transition: transform 0.2s; }
+        .shop-pin-container:hover { transform: scale(1.1); }
+        .shop-pin-head { width: 12px; height: 12px; background: #EA4335; border: 1.5px solid white; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .shop-pin-container.visited .shop-pin-head { background: #34A853; }
+        .shop-pin-inner { width: 4px; height: 4px; background: white; border-radius: 50%; position: absolute; top: 3px; left: 3px; }
+        .shop-pin-label { 
+          margin-top: 2px; 
+          background: white; 
+          color: #3c4043; 
+          font-size: 8px; 
+          font-weight: 700; 
+          padding: 1px 4px; 
+          border-radius: 4px; 
+          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+          white-space: nowrap;
+          border: 0.5px solid #dadce0;
+        }
+        
+        .custom-tooltip { display: none; }
         .shop-marker-label { text-align: center; line-height: 1; }
         .shop-name { color: white; font-weight: 800; font-size: 7px; margin-bottom: 0.2px; }
         .shop-area { color: #94a3b8; font-weight: 600; font-size: 5px; text-transform: uppercase; }

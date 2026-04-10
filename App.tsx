@@ -48,8 +48,8 @@ const LocationPickerMap = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markerInstance = useRef<any>(null);
-  const layersRef = useRef<{ street: any; satellite: any }>({ street: null, satellite: null });
-  const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
+  const layersRef = useRef<{ street: any; satellite: any; google: any; hybrid: any }>({ street: null, satellite: null, google: null, hybrid: null });
+  const [mapType, setMapType] = useState<'street' | 'satellite' | 'google' | 'hybrid'>('google');
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -64,11 +64,36 @@ const LocationPickerMap = ({
       touchRotate: true
     }).setView([initialLocation.lat, initialLocation.lng], 16);
 
-    layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
-    layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+    layersRef.current.street = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 20
+    });
+    layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 20
+    });
+    layersRef.current.google = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+      attribution: '&copy; Google Maps'
+    }).addTo(mapInstance.current);
+    layersRef.current.hybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+      attribution: '&copy; Google Maps'
+    });
 
     markerInstance.current = L.marker([initialLocation.lat, initialLocation.lng], {
-      draggable: true
+      draggable: true,
+      icon: L.divIcon({
+        className: 'custom-pin',
+        html: `<div class="pin-container">
+          <div class="pin-head"></div>
+          <div class="pin-shadow"></div>
+        </div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 30]
+      })
     }).addTo(mapInstance.current);
 
     markerInstance.current.on('dragend', (e: any) => {
@@ -111,19 +136,21 @@ const LocationPickerMap = ({
         mapInstance.current.remove();
         mapInstance.current = null;
       }
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
     };
   }, []);
 
   const toggleMapType = () => {
-    const nextType = mapType === 'street' ? 'satellite' : 'street';
+    const types: ('google' | 'hybrid' | 'street' | 'satellite')[] = ['google', 'hybrid', 'street', 'satellite'];
+    const currentIndex = types.indexOf(mapType);
+    const nextType = types[(currentIndex + 1) % types.length];
+    
     setMapType(nextType);
     if (mapInstance.current && layersRef.current) {
-      if (nextType === 'satellite') {
-        layersRef.current.street.remove();
-        layersRef.current.satellite.addTo(mapInstance.current);
-      } else {
-        layersRef.current.satellite.remove();
-        layersRef.current.street.addTo(mapInstance.current);
+      Object.values(layersRef.current).forEach((layer: any) => layer?.remove());
+      if (layersRef.current[nextType]) {
+        layersRef.current[nextType].addTo(mapInstance.current);
       }
     }
   };
@@ -146,11 +173,17 @@ const LocationPickerMap = ({
         <button 
           type="button"
           onClick={toggleMapType}
-          className={`px-2 py-1 rounded-md text-[9px] font-black uppercase shadow-sm border transition-colors ${mapType === 'satellite' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/90 text-slate-600 border-slate-200'}`}
+          className={`px-2 py-1 rounded-md text-[8px] font-black uppercase shadow-sm border transition-colors ${(mapType === 'satellite' || mapType === 'hybrid') ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/90 text-slate-600 border-slate-200'}`}
         >
-          {mapType === 'street' ? 'Satellite' : 'Street'}
+          {mapType === 'google' ? 'Google' : mapType === 'hybrid' ? 'Hybrid' : mapType === 'street' ? 'OSM' : 'Satellite'}
         </button>
       </div>
+      <style>{`
+        .custom-pin { pointer-events: auto; }
+        .pin-container { position: relative; width: 30px; height: 30px; display: flex; flex-direction: column; align-items: center; }
+        .pin-head { width: 14px; height: 14px; background: #ef4444; border: 2px solid white; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .pin-shadow { width: 6px; height: 2px; background: rgba(0,0,0,0.2); border-radius: 50%; margin-top: 2px; }
+      `}</style>
     </div>
   );
 };
@@ -4460,7 +4493,22 @@ const App: React.FC = () => {
                  </div>
                  <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-inner h-32"><MiniMap location={viewingShop.location} label={viewingShop.name} /></div>
               </div>
-              <button onClick={() => startNavigation(viewingShop)} className="w-full mt-6 bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-indigo-700 text-xs uppercase tracking-widest"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>{t('getDirections')}</button>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => startNavigation(viewingShop)} className="flex-[1.5] bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-indigo-700 text-[10px] uppercase tracking-widest">
+                  <Navigation className="w-4 h-4" />
+                  {t('internalMap')}
+                </button>
+                <button 
+                  onClick={() => {
+                    const url = `https://www.google.com/maps/dir/?api=1&destination=${viewingShop.location.lat},${viewingShop.location.lng}&travelmode=driving`;
+                    window.open(url, '_blank');
+                  }} 
+                  className="flex-1 bg-white border-2 border-slate-100 text-slate-700 font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-slate-50 text-[10px] uppercase tracking-widest"
+                >
+                  <img src="https://www.google.com/images/branding/product/ico/maps15_24dp.png" className="w-4 h-4" alt="" />
+                  Google
+                </button>
+              </div>
             </div>
           </div>
         </div>
