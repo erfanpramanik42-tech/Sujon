@@ -11,12 +11,25 @@ import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, Chevro
 
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
 import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense, UserProfile, NotificationPreferences, Place, CompetitorTrack } from './types';
-import { INITIAL_AREAS, INITIAL_SHOPS, INITIAL_PRODUCTS, TRANSLATIONS, DEMO_ROUTES } from './constants';
+import { INITIAL_AREAS, INITIAL_SHOPS, INITIAL_PRODUCTS, TRANSLATIONS, DEMO_ROUTES, WEEKDAYS } from './constants';
+import { DashboardView } from './components/DashboardView';
+import { ShopsView } from './components/ShopsView';
+import { CompetitorsView } from './components/CompetitorsView';
+import { HistoryView } from './components/HistoryView';
+import { SettingsView } from './components/SettingsView';
+import { OrderSystemOverlay } from './components/OrderSystemOverlay';
+import { ShopDetailModal } from './components/ShopDetailModal';
+import { AreaManagementModal } from './components/AreaManagementModal';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
+import { getBatchRoadDistances } from './services/distanceService';
 import { MapComponent } from './components/MapComponent';
 import { NotificationToast } from './components/NotificationToast';
 import { VisualAnalytics } from './components/VisualAnalytics';
 import { SmartRouteOptimizer } from './components/SmartRouteOptimizer';
+import { Header } from './components/Header';
+import { Navbar } from './components/Navbar';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { LocationPickerMap, MiniMap } from './components/MapUtils';
 
 declare global {
   interface Window {
@@ -34,390 +47,6 @@ const generateId = () => {
   }
   return `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
-
-const WEEKDAYS = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
-
-// --- Sub-Component: Location Picker Map ---
-const LocationPickerMap = ({ 
-  initialLocation, 
-  onChange 
-}: { 
-  initialLocation: GeoLocation, 
-  onChange: (loc: GeoLocation) => void 
-}) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<any>(null);
-  const markerInstance = useRef<any>(null);
-  const layersRef = useRef<{ street: any; satellite: any; google: any; hybrid: any }>({ street: null, satellite: null, google: null, hybrid: null });
-  const [mapType, setMapType] = useState<'street' | 'satellite' | 'google' | 'hybrid'>('google');
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    // @ts-ignore
-    const L = window.L;
-    if (!L) return;
-
-    mapInstance.current = L.map(containerRef.current, {
-      zoomControl: true,
-      scrollWheelZoom: true,
-      rotate: true,
-      touchRotate: true
-    }).setView([initialLocation.lat, initialLocation.lng], 16);
-
-    layersRef.current.street = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20
-    });
-    layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 20
-    });
-    layersRef.current.google = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-      maxZoom: 20,
-      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-      attribution: '&copy; Google Maps'
-    }).addTo(mapInstance.current);
-    layersRef.current.hybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-      maxZoom: 20,
-      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-      attribution: '&copy; Google Maps'
-    });
-
-    markerInstance.current = L.marker([initialLocation.lat, initialLocation.lng], {
-      draggable: true,
-      icon: L.divIcon({
-        className: 'custom-pin',
-        html: `<div class="pin-container">
-          <div class="pin-head"></div>
-          <div class="pin-shadow"></div>
-        </div>`,
-        iconSize: [30, 30],
-        iconAnchor: [15, 30]
-      })
-    }).addTo(mapInstance.current);
-
-    markerInstance.current.on('dragend', (e: any) => {
-      const latlng = e.target.getLatLng();
-      onChange({ lat: latlng.lat, lng: latlng.lng });
-    });
-
-    mapInstance.current.on('click', (e: any) => {
-      markerInstance.current.setLatLng(e.latlng);
-      onChange({ lat: e.latlng.lat, lng: e.latlng.lng });
-    });
-
-    // Manual Touch Rotation Gesture Logic
-    let initialAngle = 0;
-    let initialBearing = 0;
-    const container = mapInstance.current.getContainer();
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        initialAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        initialBearing = mapInstance.current.getBearing();
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const currentAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        const delta = currentAngle - initialAngle;
-        mapInstance.current.setBearing(initialBearing + delta);
-      }
-    };
-
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-
-    setTimeout(() => mapInstance.current?.invalidateSize(), 300);
-
-    return () => {
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
-      }
-      container.removeEventListener('touchstart', onTouchStart);
-      container.removeEventListener('touchmove', onTouchMove);
-    };
-  }, []);
-
-  const toggleMapType = () => {
-    const types: ('google' | 'hybrid' | 'street' | 'satellite')[] = ['google', 'hybrid', 'street', 'satellite'];
-    const currentIndex = types.indexOf(mapType);
-    const nextType = types[(currentIndex + 1) % types.length];
-    
-    setMapType(nextType);
-    if (mapInstance.current && layersRef.current) {
-      Object.values(layersRef.current).forEach((layer: any) => layer?.remove());
-      if (layersRef.current[nextType]) {
-        layersRef.current[nextType].addTo(mapInstance.current);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (mapInstance.current && markerInstance.current) {
-      const currentMarkerPos = markerInstance.current.getLatLng();
-      if (Math.abs(currentMarkerPos.lat - initialLocation.lat) > 0.0000001 || 
-          Math.abs(currentMarkerPos.lng - initialLocation.lng) > 0.0000001) {
-        markerInstance.current.setLatLng([initialLocation.lat, initialLocation.lng]);
-        mapInstance.current.panTo([initialLocation.lat, initialLocation.lng]);
-      }
-    }
-  }, [initialLocation.lat, initialLocation.lng]);
-
-  return (
-    <div className="relative group">
-      <div ref={containerRef} className="h-48 w-full rounded-xl border border-slate-200 shadow-inner overflow-hidden" />
-      <div className="absolute top-2 left-2 z-[1000] flex gap-1">
-        <button 
-          type="button"
-          onClick={toggleMapType}
-          className={`px-2 py-1 rounded-md text-[8px] font-black uppercase shadow-sm border transition-colors ${(mapType === 'satellite' || mapType === 'hybrid') ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/90 text-slate-600 border-slate-200'}`}
-        >
-          {mapType === 'google' ? 'Google' : mapType === 'hybrid' ? 'Hybrid' : mapType === 'street' ? 'OSM' : 'Satellite'}
-        </button>
-      </div>
-      <style>{`
-        .custom-pin { pointer-events: auto; }
-        .pin-container { position: relative; width: 30px; height: 30px; display: flex; flex-direction: column; align-items: center; }
-        .pin-head { width: 14px; height: 14px; background: #ef4444; border: 2px solid white; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-        .pin-shadow { width: 6px; height: 2px; background: rgba(0,0,0,0.2); border-radius: 50%; margin-top: 2px; }
-      `}</style>
-    </div>
-  );
-};
-
-// --- Sub-Component: Stable Mini Map ---
-const MiniMap = ({ location, label }: { location: GeoLocation; label?: string }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<any>(null);
-  const layersRef = useRef<{ street: any; satellite: any }>({ street: null, satellite: null });
-  const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    // @ts-ignore
-    const L = window.L;
-    if (!L) return;
-    
-    mapInstance.current = L.map(containerRef.current, {
-      zoomControl: false,
-      attributionControl: false,
-      dragging: false,
-      scrollWheelZoom: false,
-      rotate: true,
-      touchRotate: true
-    }).setView([location.lat, location.lng], 16);
-    
-    layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
-    layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
-    
-    const marker = L.marker([location.lat, location.lng]).addTo(mapInstance.current);
-    if (label) {
-      marker.bindTooltip(label, { permanent: true, direction: 'top', className: 'minimal-label' }).openTooltip();
-    }
-
-    let initialAngle = 0;
-    let initialBearing = 0;
-    const container = mapInstance.current.getContainer();
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        initialAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        initialBearing = mapInstance.current.getBearing();
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const currentAngle = Math.atan2(e.touches[1].pageY - e.touches[0].pageY, e.touches[1].pageX - e.touches[0].pageX) * 180 / Math.PI;
-        const delta = currentAngle - initialAngle;
-        mapInstance.current.setBearing(initialBearing + delta);
-      }
-    };
-
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-
-    setTimeout(() => mapInstance.current?.invalidateSize(), 300);
-
-    return () => {
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
-      }
-    };
-  }, [location.lat, location.lng, label]);
-
-  const toggleMapType = () => {
-    const nextType = mapType === 'street' ? 'satellite' : 'street';
-    setMapType(nextType);
-    if (mapInstance.current && layersRef.current) {
-      if (nextType === 'satellite') {
-        layersRef.current.street.remove();
-        layersRef.current.satellite.addTo(mapInstance.current);
-      } else {
-        layersRef.current.satellite.remove();
-        layersRef.current.street.addTo(mapInstance.current);
-      }
-    }
-  };
-
-  return (
-    <div className="relative">
-      <div ref={containerRef} className="h-32 w-full rounded-xl border border-slate-200 mt-4 shadow-inner" />
-      <button 
-        type="button" 
-        onClick={toggleMapType}
-        className={`absolute top-6 left-2 z-[1000] px-2 py-1 rounded-md text-[8px] font-black uppercase shadow-sm border transition-colors ${mapType === 'satellite' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/90 text-slate-600 border-slate-200'}`}
-      >
-        {mapType === 'street' ? 'Satellite' : 'Street'}
-      </button>
-    </div>
-  );
-};
-
-// --- Sub-Component: Header ---
-const Header = ({ title, location, lang, onLangToggle, isTracking, onTrackingToggle, onKebabToggle, showKebab, t, onRefreshLocation, lastUpdated }: any) => (
-  <header className="sticky top-0 z-50 bg-indigo-700 dark:bg-indigo-900 text-white p-3 sm:p-4 shadow-lg transition-colors">
-    <div className="flex justify-between items-center max-w-4xl mx-auto gap-2">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-base sm:text-xl font-bold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">{title}</h1>
-        {location && (
-          <div className="flex flex-col items-start">
-            <div className="flex items-center gap-1.5">
-              <p className="text-[8px] sm:text-[10px] text-indigo-200 font-mono">
-                GPS: {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
-              </p>
-              <button 
-                onClick={onRefreshLocation}
-                className="p-1 hover:bg-white/10 rounded-full transition-all active:rotate-180 duration-500"
-                title="Refresh Location"
-              >
-                <svg className="w-2.5 h-2.5 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              </button>
-            </div>
-            <div className="flex items-center gap-2">
-              {location.accuracy && (
-                <p className={`text-[7px] font-black uppercase tracking-tighter ${location.accuracy < 15 ? 'text-emerald-400' : location.accuracy < 30 ? 'text-amber-400' : 'text-rose-400'}`}>
-                  ±{Math.round(location.accuracy)}m
-                </p>
-              )}
-              {lastUpdated && (
-                <p className="text-[7px] font-bold text-indigo-300 uppercase tracking-tighter">
-                  Updated: {new Date(lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-        <button 
-          onClick={onLangToggle}
-          className="text-[10px] sm:text-xs bg-indigo-600 px-2 sm:px-3 py-1 rounded-full border border-indigo-400 font-bold whitespace-nowrap"
-        >
-          {lang === 'en' ? 'বাংলা' : 'EN'}
-        </button>
-        <button 
-          onClick={onTrackingToggle}
-          className={`px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-all shadow-md whitespace-nowrap ${isTracking ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`}
-        >
-          {isTracking ? t('trackingOn') : t('trackingOff')}
-        </button>
-        {showKebab && (
-          <button 
-            onClick={onKebabToggle}
-            className="p-1 sm:p-1.5 hover:bg-white/10 rounded-lg transition-all active:scale-95"
-          >
-            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" viewBox="0 0 24 24">
-              <circle cx="7.5" cy="7.5" r="2.5" />
-              <circle cx="16.5" cy="7.5" r="2.5" />
-              <circle cx="7.5" cy="16.5" r="2.5" />
-              <circle cx="16.5" cy="16.5" r="2.5" />
-            </svg>
-          </button>
-        )}
-      </div>
-    </div>
-  </header>
-);
-
-// --- Sub-Component: Navbar ---
-const Navbar = ({ view, setView, t }: any) => (
-  <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe-area z-[100] transition-colors">
-    <div className="flex justify-around items-center h-14 max-w-4xl mx-auto px-2">
-      {(['Dashboard', 'Map', 'Shops', 'History', 'Settings'] as AppView[]).map(v => (
-        <button 
-          key={v}
-          onClick={() => setView(v)}
-          className={`flex flex-col items-center gap-0.5 transition-colors ${view === v ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`}
-        >
-          <div className={`p-0.5 rounded-lg transition-colors ${view === v ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}`}>
-            {v === 'Dashboard' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 00-1.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>}
-            {v === 'Map' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 5.293L14 1.586v12.828l2.293 2.293A1 1 0 0018 16V6a1 1 0 00-.293-.707z" clipRule="evenodd" /></svg>}
-            {v === 'Shops' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>}
-            {v === 'History' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>}
-            {v === 'Settings' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>}
-          </div>
-          <span className="text-[8px] font-bold uppercase tracking-wider">{t(v.toLowerCase())}</span>
-        </button>
-      ))}
-    </div>
-  </nav>
-);
-
-
-// --- Helper: Error Boundary ---
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: any;
-}
-
-class ErrorBoundary extends Component<any, any> {
-  state = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("Uncaught error:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 text-center">
-          <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 max-w-sm w-full space-y-4">
-            <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            </div>
-            <h2 className="text-xl font-black text-slate-800">Something went wrong</h2>
-            <p className="text-xs text-slate-500 font-medium leading-relaxed">The application encountered an unexpected error. We've logged the details and are working to fix it.</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl shadow-lg shadow-indigo-100 active:scale-95 transition-all uppercase tracking-widest text-[10px]"
-            >
-              Reload Application
-            </button>
-            {process.env.NODE_ENV === 'development' && (
-              <pre className="mt-4 p-3 bg-slate-900 text-rose-400 text-[8px] text-left overflow-auto rounded-lg max-h-32 font-mono">
-                {this.state.error?.toString()}
-              </pre>
-            )}
-          </div>
-        </div>
-      );
-    }
-    return (this as any).props.children;
-  }
-}
 
 // --- Main App Component ---
 const App: React.FC = () => {
@@ -861,27 +490,22 @@ const App: React.FC = () => {
       console.warn("Raw GPS coordinates outside Bangladesh bounds:", newLat, newLng);
     }
 
+    // Units: degrees. 1m ≈ 0.000009 degrees.
+    const DEG_PER_METRE = 0.000009;
+    const r = Math.max((accuracy * DEG_PER_METRE) ** 2, (3 * DEG_PER_METRE) ** 2); // Measurement noise (min 3m)
+    const q = (2.0 * DEG_PER_METRE) ** 2; // Process noise increased to 2m to allow following sharper turns and faster movement
+
     if (state.variance < 0 || forceReset) {
-      kalmanStateRef.current = { lat: newLat, lng: newLng, variance: accuracy * accuracy };
+      kalmanStateRef.current = { lat: newLat, lng: newLng, variance: r };
       return { lat: newLat, lng: newLng };
     } else {
-      // Check for sudden large jumps (e.g. > 30m) and reset filter if needed
-      // 30m is a very aggressive reset to ensure responsiveness when moving between shops
+      // Check for sudden large jumps (e.g. > 100m) and reset filter if needed
       const jumpDist = calculateDistance({ lat: state.lat, lng: state.lng }, { lat: newLat, lng: newLng });
-      if (jumpDist > 30) {
-        kalmanStateRef.current = { lat: newLat, lng: newLng, variance: accuracy * accuracy };
+      if (jumpDist > 100) {
+        kalmanStateRef.current = { lat: newLat, lng: newLng, variance: r };
         return { lat: newLat, lng: newLng };
       }
 
-      // Dynamic process noise: if moving, increase noise to follow path better
-      // q is in degrees squared equivalent. 0.0001 degrees is ~11m.
-      // We use a much larger q here to ensure the filter doesn't "stick"
-      // Increased to 0.001 for near-instant response to movement
-      const q = 0.001; 
-      
-      // Cap r (measurement noise) to ensure the filter doesn't ignore new data even if accuracy is poor
-      const r = Math.min(accuracy * accuracy, 225); // Cap at 15m accuracy equivalent for even more trust in raw data
-      
       state.variance += q;
       const k = state.variance / (state.variance + r);
       state.lat += k * (newLat - state.lat);
@@ -926,8 +550,13 @@ const App: React.FC = () => {
     }
 
     if (isTrackingRef.current && activeRouteRef.current) {
+      // Ignore poor accuracy points to prevent "web" patterns in path
+      if (pos.coords.accuracy && pos.coords.accuracy > 45) return;
+
       const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
       const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
+      
+      // Threshold reduced to 3m for better precision while following path exactly
       if (displacement >= 3) {
         setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
       }
@@ -958,6 +587,21 @@ const App: React.FC = () => {
         }
       } else {
         lastStopCheckLocRef.current = newLoc;
+      }
+    }
+
+    // Auto-Arrival Detection: Clear navigation if we arrive at target (within 15m)
+    if (navigationTargetRef.current) {
+      const distToTarget = calculateDistance(newLoc, navigationTargetRef.current.location);
+      if (distToTarget < 15) {
+         console.info("Target reached. Stopping navigation.");
+         setNavigationTarget(null);
+         setAlertInfo({
+           show: true,
+           title: t('success'),
+           message: `You have arrived at ${navigationTargetRef.current.name}`,
+           type: 'success'
+         });
       }
     }
   }, [applyKalmanFilter, detectionRange, lang]);
@@ -1255,7 +899,7 @@ const App: React.FC = () => {
     show: boolean; 
     title: string; 
     message: React.ReactNode; 
-    type: 'success' | 'error' 
+    type: 'success' | 'error' | 'info'
   }>({
     show: false,
     title: '',
@@ -1315,6 +959,18 @@ const App: React.FC = () => {
   useEffect(() => { areasRef.current = activeAreas; }, [activeAreas]);
   useEffect(() => { isTrackingRef.current = isTracking; }, [isTracking]);
   useEffect(() => { activeRouteRef.current = activeRoute; }, [activeRoute]);
+
+  // Logic: Clear stale active routes on initialization
+  useEffect(() => {
+    if (activeRoute && activeRoute.startTime) {
+      const routeAgeHrs = (Date.now() - activeRoute.startTime) / (1000 * 60 * 60);
+      if (routeAgeHrs > 18) {
+        console.warn("Clearing stale tracking route from yesterday.");
+        setActiveRoute(null);
+        localStorage.removeItem('fieldpro_active_route');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (view !== 'Settings') {
@@ -1377,6 +1033,8 @@ const App: React.FC = () => {
   const [newAreaDay, setNewAreaDay] = useState(currentDayName);
   const [editingShop, setEditingShop] = useState<Partial<Shop> | null>(null);
   const [navigationTarget, setNavigationTarget] = useState<Shop | null>(null);
+  const navigationTargetRef = useRef(navigationTarget);
+  useEffect(() => { navigationTargetRef.current = navigationTarget; }, [navigationTarget]);
 
   // Back button support for Android/Mobile
   useEffect(() => {
@@ -1542,12 +1200,71 @@ const App: React.FC = () => {
     setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
   };
 
+  const [roadDistances, setRoadDistances] = useState<Record<string, number>>({});
+
+  const lastFetchLocRef = useRef<GeoLocation | null>(null);
+
+  // Fetch accurate road distances periodically or when location changes significantly
+  useEffect(() => {
+    if (!currentLocation || activeShops.length === 0) return;
+
+    // Only fetch if moved more than 50m from last fetch or it's the first time
+    const moveDist = lastFetchLocRef.current ? calculateDistance(currentLocation, lastFetchLocRef.current) : 1000;
+    if (moveDist < 50) return;
+
+    const fetchAccurateDistances = async () => {
+      try {
+        // For nearby shops only to save API costs and improve performance
+        // Get shops within 2km for road distance calculation
+        const potentialShops = activeShops
+          .map(s => ({ ...s, d: calculateDistance(currentLocation, s.location) }))
+          .filter(s => s.d < 2000) 
+          .sort((a, b) => a.d - b.d)
+          .slice(0, 10);
+
+        if (potentialShops.length === 0) return;
+
+        const shopLocations = potentialShops.map(s => s.location);
+        const distances = await getBatchRoadDistances(currentLocation, shopLocations);
+        
+        const newRoadDistances: Record<string, number> = {};
+        potentialShops.forEach((shop, index) => {
+          newRoadDistances[shop.id] = distances[index];
+        });
+        
+        setRoadDistances(newRoadDistances);
+        lastFetchLocRef.current = currentLocation;
+      } catch (error) {
+        console.warn('Failed to fetch road distances:', error);
+      }
+    };
+
+    const timeout = setTimeout(fetchAccurateDistances, 1000); 
+    return () => clearTimeout(timeout);
+  }, [currentLocation?.lat, currentLocation?.lng, activeShops.length]);
+
   const shopsWithDistances = useMemo(() => {
     if (!currentLocation) return [];
-    return activeShops.map(shop => ({ 
-      ...shop, distance: calculateDistance(currentLocation, shop.location) 
-    }));
-  }, [activeShops, currentLocation]);
+    return activeShops.map(shop => {
+      const birdDist = calculateDistance(currentLocation, shop.location);
+      let roadDist = roadDistances[shop.id];
+
+      // Reset road distance if it significantly disagrees with bird distance (stale data)
+      // Road distance MUST be >= bird distance (straight line is shortest).
+      // We allow a small error margin of 10m for GPS accuracy differences between user and map.
+      if (roadDist !== undefined && (birdDist > roadDist + 150 || roadDist < birdDist - 10)) {
+        roadDist = undefined;
+      }
+
+      const finalDistance = roadDist !== undefined ? roadDist : birdDist;
+
+      return { 
+        ...shop, 
+        distance: finalDistance,
+        birdDistance: birdDist
+      };
+    });
+  }, [activeShops, currentLocation, roadDistances]);
 
   const nearbyShops = useMemo(() => {
     return shopsWithDistances
@@ -2126,7 +1843,7 @@ const App: React.FC = () => {
   };
 
   const filteredShopsList = useMemo(() => {
-    return activeShops.filter(shop => {
+    return shopsWithDistances.filter(shop => {
       const area = activeAreas.find(a => a.id === shop.areaId);
       const areaName = area ? area.name.toLowerCase() : '';
       const subAreaName = shop.subArea ? shop.subArea.toLowerCase() : '';
@@ -2139,8 +1856,8 @@ const App: React.FC = () => {
         
       const matchesArea = selectedAreaId === 'all' || shop.areaId === selectedAreaId;
       return matchesSearch && matchesArea;
-    });
-  }, [activeShops, searchQuery, selectedAreaId, activeAreas]);
+    }).sort((a, b) => (a.distance || 0) - (b.distance || 0));
+  }, [shopsWithDistances, searchQuery, selectedAreaId, activeAreas]);
 
   const startNavigation = (shop: Shop) => {
     setNavigationTarget(shop);
@@ -2751,7 +2468,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen ${isInRideMode ? 'h-screen pb-0' : 'pb-24'} flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors`}>
+    <div className={`min-h-screen ${isInRideMode || view === 'Map' ? 'h-screen pb-0' : 'pb-24'} flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors`}>
       {!isInRideMode && !viewingRoute && !showCatalog && !viewingProduct && !showOrderSystem && !showDealersList && !showAnalytics && !showSmartRoute && (
         <Header 
           title={t('appTitle')} 
@@ -2803,175 +2520,28 @@ const App: React.FC = () => {
         onClose={() => setAlertInfo(prev => ({ ...prev, show: false }))}
       />
 
-      <main className={`flex-1 flex flex-col ${isInRideMode || viewingRoute || viewingProduct || showOrderSystem || showDealersList || showAnalytics || showSmartRoute ? 'h-full p-0 overflow-hidden' : 'p-3 max-w-4xl mx-auto w-full'} bg-slate-50 dark:bg-slate-950 relative`}>
+      <main className={`flex-1 flex flex-col ${view === 'Map' || isInRideMode || viewingRoute || viewingProduct || showOrderSystem || showDealersList || showAnalytics || showSmartRoute ? 'p-0 overflow-hidden' : 'p-3 max-w-4xl mx-auto w-full'} bg-slate-50 dark:bg-slate-950 relative`}>
         {view === 'Dashboard' && (
-          <div className="space-y-4 animate-fadeIn flex-1 overflow-y-auto pb-4 scrollbar-hide">
-            <div className="grid grid-cols-2 gap-3 flex-shrink-0">
-              <div className="bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
-                <p className="text-slate-500 dark:text-slate-400 text-[9px] font-bold uppercase tracking-tight">{lang === 'en' ? "Today's Shops" : "আজকের মোট দোকান"}</p>
-                <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{todayShopsCount}</p>
-              </div>
-              <div className="bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
-                <p className="text-slate-500 dark:text-slate-400 text-[9px] font-bold uppercase tracking-tight">{lang === 'en' ? "Visited Today" : "আজকের ভিজিট"}</p>
-                <p className="text-2xl font-black text-rose-500 dark:text-rose-400">{visitedTodayCount}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 text-sm">
-                  <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm"></span></span>
-                  <span>{lang === 'en' ? 'Current Spot' : 'বর্তমান অবস্থান'}</span>
-                </h4>
-                <div className="flex items-center gap-2 bg-indigo-50/80 dark:bg-indigo-900/30 px-2 py-1 rounded-full border border-indigo-100 dark:border-indigo-800 shadow-sm">
-                  <span className="text-[8px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter w-10">{detectionRange}m Range</span>
-                  <input type="range" min="1" max="50" value={detectionRange} onChange={(e) => setDetectionRange(Number(e.target.value))} className="w-12 h-1 bg-indigo-200 dark:bg-indigo-800 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
-                </div>
-              </div>
-              
-              {atShop ? (
-                <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 dark:from-emerald-900/20 dark:via-slate-800 dark:to-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 shadow-sm flex gap-4 cursor-pointer relative overflow-hidden group" onClick={() => setViewingShop(atShop)}>
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-400/10 rounded-full -translate-y-16 translate-x-16 blur-3xl group-hover:bg-emerald-500/20 transition-colors"></div>
-                  <div className="absolute top-2 right-2 z-20">
-                    <span className="bg-emerald-600 text-white text-[8px] font-black px-2 py-1 rounded-full shadow-sm flex items-center gap-1.5 border border-white/20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-                      LIVE
-                    </span>
-                  </div>
-                  <div className="relative flex-shrink-0">
-                    <div className="w-20 h-20 rounded-xl bg-white dark:bg-slate-700 flex-shrink-0 overflow-hidden border border-emerald-100 dark:border-emerald-900 shadow-md relative z-10 transform group-hover:scale-105 transition-transform duration-500">
-                      {atShop.photo ? <img src={atShop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-emerald-300 dark:text-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/30"><svg className="w-10 h-10" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg></div>}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0 relative z-10 py-1">
-                    <p className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm animate-pulse"></span>
-                      {lang === 'en' ? `Detected:` : `শনাক্ত:`}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 leading-tight group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors duration-300">{atShop.name}</h2>
-                      <span className="bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                        {Math.round((atShop as any).distance)}m
-                      </span>
-                      {isVisitedToday(atShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-sm border border-white/40"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-                      <p className="text-sm font-bold text-slate-600 dark:text-slate-400">{atShop.ownerName}</p>
-                      <div className="flex gap-1.5 flex-wrap">
-                        <span className="bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-200 dark:border-emerald-800">{activeAreas.find(a => a.id === atShop.areaId)?.name}</span>
-                        {atShop.subArea && <span className="bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 text-[8px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-100 dark:border-emerald-800">{atShop.subArea}</span>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center shadow-inner relative overflow-hidden group">
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-50/30 dark:via-indigo-900/10 to-transparent animate-shimmer"></div>
-                  <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border border-slate-400 dark:border-slate-600 rounded-full animate-ping-slow"></div>
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-slate-400 dark:border-slate-600 rounded-full animate-ping-slow delay-700"></div>
-                  </div>
-                  <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest relative z-10 flex flex-col items-center gap-3">
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-indigo-400 rounded-full blur-xl opacity-20 animate-pulse"></div>
-                      <svg className="w-8 h-8 text-slate-300 dark:text-slate-700 animate-spin-slow relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-500 rounded-full animate-pulse border-2 border-white dark:border-slate-800 shadow-sm"></span>
-                    </div>
-                    {lang === 'en' ? `Scanning...` : `খোঁজা হচ্ছে...`}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-indigo-600 dark:bg-indigo-900 rounded-lg p-2 text-white relative overflow-hidden shadow-lg flex-shrink-0">
-              <div className="relative z-10">
-                <div className="flex justify-between items-center mb-1">
-                  <h3 className="text-[9px] font-black uppercase tracking-tight opacity-70">Field Areas ({currentDayName})</h3>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {dashboardAreas.length > 0 ? dashboardAreas.map(area => (
-                    <button key={area.id} onClick={() => { setSelectedAreaId(area.id); setView('Shops'); }} className="bg-white/15 hover:bg-white/25 active:scale-95 transition-all backdrop-blur-md px-2 py-0.5 rounded-md text-[9px] font-medium border border-white/10 text-left outline-none">{area.name}</button>
-                  )) : <p className="text-[8px] font-bold text-white/50 italic">No areas assigned for {currentDayName}</p>}
-                </div>
-              </div>
-              <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-full -translate-y-6 translate-x-6 blur-lg"></div>
-            </div>
-
-            <div className="space-y-2 flex-1 min-h-0 flex flex-col">
-              <div className="flex justify-between items-center">
-                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2"><span>{t('nearbyShops')}</span>{nearbyShops.length > 0 && <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[9px] px-1.5 py-0.5 rounded-full font-black">{nearbyShops.length}</span>}</h4>
-                <div className="flex items-center gap-1.5 bg-indigo-50/80 dark:bg-indigo-900/30 px-2 py-1 rounded-full border border-indigo-100 dark:border-indigo-800 shadow-sm"><span className="text-[8px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter w-12">{nearbyRange}m Range</span><input type="range" min="10" max="500" step="10" value={nearbyRange} onChange={(e) => setNearbyRange(Number(e.target.value))} className="w-16 h-1 bg-indigo-200 dark:bg-indigo-800 rounded-lg appearance-none cursor-pointer accent-indigo-600" /></div>
-              </div>
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
-                <div className="max-h-[320px] overflow-y-auto p-2 space-y-2 scrollbar-hide">
-                  {nearbyShops.length > 0 ? nearbyShops.map(shop => (
-                    <div key={shop.id} className="p-2 rounded-lg flex items-center gap-2 border border-slate-50 dark:border-slate-800 hover:border-indigo-100 dark:hover:border-indigo-900 bg-slate-50/30 dark:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => setViewingShop(shop)}>
-                      <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex-shrink-0 overflow-hidden relative">
-                        {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-600"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
-                        {isVisitedToday(shop.id) && <div className="absolute top-0.5 right-0.5 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm border border-white/20"><svg className="w-1.5 h-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-start">
-                          <p className="font-bold text-slate-800 dark:text-slate-100 text-xs leading-tight flex items-center gap-1">{shop.name}</p>
-                          <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1 py-0.5 rounded-md flex-shrink-0">
-                            {Math.round((shop as any).distance) < 5 ? '0' : Math.round((shop as any).distance)}m
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
-                          <p className="text-[9px] text-slate-500 dark:text-slate-400">{shop.ownerName}</p>
-                          <div className="flex gap-1 items-center overflow-hidden">
-                            <span className="text-[7px] font-black text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded uppercase flex-shrink-0">{activeAreas.find(a => a.id === shop.areaId)?.name}</span>
-                            {shop.subArea && <span className="text-[7px] font-black text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 px-1 py-0.5 rounded uppercase truncate">{shop.subArea}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )) : <div className="py-8 text-center"><p className="text-xs font-bold text-slate-400 dark:text-slate-500 italic">No shops within {nearbyRange}m.</p></div>}
-                </div>
-              </div>
-            </div>
-
-            {getSpecialDayShops().length > 0 && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-4 shadow-sm relative overflow-hidden flex-shrink-0">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-400/10 rounded-full -translate-y-12 translate-x-12 blur-2xl"></div>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-sm border border-amber-200 dark:border-amber-800">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 5a3 3 0 015-2.236A3 3 0 0114.83 6H16a2 2 0 110 4h-5V9a1 1 0 10-2 0v1H4a2 2 0 110-4h1.17C5.06 5.687 5 5.35 5 5zm4 1V5a1 1 0 10-1 1h1zm3 0a1 1 0 10-1-1v1h1z" clipRule="evenodd" /><path d="M9 11H3v5a2 2 0 002 2h4v-7zM11 18h4a2 2 0 002-2v-5h-6v7z" clipRule="evenodd" /></svg>
-                  </div>
-                  <div>
-                    <h5 className="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-widest leading-none mb-1">{t('celebratingToday')}</h5>
-                    <p className="text-[8px] text-amber-600 dark:text-amber-500 font-bold uppercase tracking-tighter">Send your best wishes!</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {getSpecialDayShops().map(shop => {
-                    const today = new Date();
-                    const isBirthday = shop.birthday && new Date(shop.birthday).getMonth() === today.getMonth() && new Date(shop.birthday).getDate() === today.getDate();
-                    
-                    return (
-                      <div key={shop.id} className="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-amber-100 dark:border-amber-900/30 flex items-center justify-between shadow-sm group cursor-pointer active:scale-[0.98] transition-all" onClick={() => setViewingShop(shop)}>
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 overflow-hidden border border-slate-200 dark:border-slate-600">
-                            {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-500"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg></div>}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate leading-tight">{shop.name}</p>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-tighter bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded border border-amber-100 dark:border-amber-900/20">{isBirthday ? t('birthday') : t('anniversary')}</span>
-                              <span className="text-[8px] text-slate-400 dark:text-slate-500 font-bold uppercase truncate">{shop.ownerName}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <a href={`tel:${shop.phone}`} onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-200 dark:shadow-none active:scale-90 transition-all">
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
-                        </a>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+          <DashboardView 
+            lang={lang}
+            todayShopsCount={todayShopsCount}
+            visitedTodayCount={visitedTodayCount}
+            atShop={atShop}
+            detectionRange={detectionRange}
+            setDetectionRange={setDetectionRange}
+            setViewingShop={setViewingShop}
+            isVisitedToday={isVisitedToday}
+            activeAreas={activeAreas}
+            currentDayName={currentDayName}
+            dashboardAreas={dashboardAreas}
+            setSelectedAreaId={setSelectedAreaId}
+            setView={setView}
+            nearbyShops={nearbyShops}
+            nearbyRange={nearbyRange}
+            setNearbyRange={setNearbyRange}
+            getSpecialDayShops={getSpecialDayShops}
+            t={t}
+          />
         )}
 
         {view === 'Map' && (
@@ -2992,581 +2562,95 @@ const App: React.FC = () => {
         )}
 
         {view === 'Shops' && (
-          <div className="flex flex-col h-full gap-3 animate-fadeIn">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1"><input type="text" placeholder={t('search')} className="w-full bg-white rounded-xl py-2.5 pl-10 pr-4 text-xs shadow-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /><svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
-              <div className="flex gap-1.5">
-                <button onClick={() => setIsManagingAreas(true)} className="bg-white text-indigo-600 p-2.5 rounded-xl shadow-sm border border-indigo-100 transition-all active:scale-95 hover:bg-indigo-50">
-                  <MapPin className="w-5 h-5" />
-                </button>
-                <button onClick={initAddShop} className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-95 hover:bg-indigo-700">
-                  <Plus className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-              <button onClick={() => setSelectedAreaId('all')} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all border ${selectedAreaId === 'all' ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-500'}`}>All Areas</button>
-              {activeAreas.map(area => (<button key={area.id} onClick={() => setSelectedAreaId(area.id)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all border ${selectedAreaId === area.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-500'}`}>{area.name}</button>))}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto pb-24 scrollbar-hide">
-              {filteredShopsList.length > 0 ? filteredShopsList.map(shop => (
-                <div key={shop.id} onClick={() => setViewingShop(shop)} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex gap-3 transition-all hover:shadow-md group cursor-pointer relative">
-                   <div className="w-16 h-16 rounded-xl bg-slate-50 flex-shrink-0 overflow-hidden border border-slate-100 relative">
-                     {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
-                     {isVisitedToday(shop.id) && <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-[1px] flex items-center justify-center"><div className="bg-emerald-500 text-white rounded-full p-0.5 shadow-lg border-2 border-white"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></div></div>}
-                   </div>
-                   <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-2">
-                      <h5 className="font-bold text-slate-900 text-sm leading-tight group-hover:text-indigo-600 transition-colors">{shop.name}</h5>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                      <p className="text-[10px] font-medium text-slate-500">{shop.ownerName}</p>
-                      <div className="flex gap-1 flex-wrap">
-                        <span className="text-[7px] font-black text-indigo-400 bg-indigo-50 px-1 py-0.5 rounded uppercase">{activeAreas.find(a => a.id === shop.areaId)?.name}</span>
-                        {shop.subArea && <span className="text-[7px] font-black text-slate-400 bg-slate-100 px-1 py-0.5 rounded uppercase">{shop.subArea}</span>}
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5 mt-2">
-                      <button onClick={(e) => { e.stopPropagation(); startNavigation(shop); }} className="flex-1 bg-indigo-50 text-indigo-600 text-[9px] font-black py-1.5 rounded-lg uppercase tracking-wider">Navigate</button>
-                      <button onClick={(e) => { e.stopPropagation(); setOrderShop(shop); setOrderTab('history'); setShowOrderSystem(true); }} className="px-3 bg-slate-50 text-slate-400 py-1.5 rounded-lg">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                        </svg>
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingShop(shop); setIsEditingShop(true); }} className="px-3 bg-indigo-50 text-indigo-600 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors">
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end justify-between py-1">
-                    {isVisitedToday(shop.id) ? (
-                      <div className="text-emerald-500 font-black text-[8px] uppercase tracking-widest flex items-center gap-1 bg-emerald-50 px-1.5 py-0.5 rounded-full">{t('visited')}</div>
-                    ) : (
-                      <div className="h-4"></div>
-                    )}
-                    {currentLocation && (
-                      <div className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 shadow-sm">
-                        {Math.round(calculateDistance(currentLocation, shop.location))}m
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )) : <div className="col-span-full py-16 text-center"><p className="text-slate-400 font-bold text-sm">{t('noShops')}</p></div>}
-            </div>
-          </div>
+          <ShopsView 
+            t={t}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            setIsManagingAreas={setIsManagingAreas}
+            initAddShop={initAddShop}
+            selectedAreaId={selectedAreaId}
+            setSelectedAreaId={setSelectedAreaId}
+            activeAreas={activeAreas}
+            filteredShopsList={filteredShopsList}
+            setViewingShop={setViewingShop}
+            isVisitedToday={isVisitedToday}
+            startNavigation={startNavigation}
+            setOrderShop={setOrderShop}
+            setOrderTab={setOrderTab}
+            setShowOrderSystem={setShowOrderSystem}
+            setEditingShop={setEditingShop}
+            setIsEditingShop={setIsEditingShop}
+            currentLocation={currentLocation}
+            calculateDistance={calculateDistance}
+          />
         )}
 
         {view === 'Competitors' && (
-          <div className="flex flex-col h-full gap-3 animate-fadeIn">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <input 
-                  type="text" 
-                  placeholder={lang === 'en' ? 'Search competitors or products...' : 'প্রতিযোগী বা পণ্য খুঁজুন...'} 
-                  className="w-full bg-white dark:bg-slate-900 rounded-xl py-2.5 pl-10 pr-4 text-xs shadow-sm border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
-                  value={competitorSearch} 
-                  onChange={(e) => setCompetitorSearch(e.target.value)} 
-                />
-                <svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <button 
-                onClick={() => { setTempCompetitorTrack({}); setIsAddingCompetitorTrack(true); }} 
-                className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-95 hover:bg-indigo-700"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pb-24 space-y-3 scrollbar-hide">
-              {competitorTracks.filter(t => 
-                t.competitorName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
-                t.productName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
-                t.shopName.toLowerCase().includes(competitorSearch.toLowerCase())
-              ).length > 0 ? (
-                competitorTracks.filter(t => 
-                  t.competitorName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
-                  t.productName.toLowerCase().includes(competitorSearch.toLowerCase()) ||
-                  t.shopName.toLowerCase().includes(competitorSearch.toLowerCase())
-                ).map(track => (
-                  <div key={track.id} className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex gap-3 relative group">
-                    <div className="w-16 h-16 rounded-xl bg-slate-50 dark:bg-slate-800 flex-shrink-0 overflow-hidden border border-slate-100 dark:border-slate-700">
-                      {track.photo ? (
-                        <img src={track.photo} className="w-full h-full object-cover" alt="" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-600">
-                          <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 text-left">
-                      <div className="flex justify-between items-start">
-                        <h5 className="font-bold text-slate-900 dark:text-slate-100 text-sm leading-tight">{track.competitorName}</h5>
-                        <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded uppercase">৳{track.price}</span>
-                      </div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">{track.productName}</p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded uppercase truncate max-w-[120px]">{track.shopName}</span>
-                        <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500">{track.date}</span>
-                      </div>
-                      {track.offerDetails && (
-                        <div className="mt-2 p-1.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
-                          <p className="text-[9px] text-amber-700 dark:text-amber-500 leading-tight font-medium">{track.offerDetails}</p>
-                        </div>
-                      )}
-                    </div>
-                    <button 
-                      onClick={() => deleteCompetitorTrack(track.id)}
-                      className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="py-20 text-center">
-                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-300 dark:text-slate-600">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
-                    </svg>
-                  </div>
-                  <p className="text-slate-400 dark:text-slate-500 font-bold text-sm">{t('noTracks')}</p>
-                </div>
-              )}
-            </div>
-          </div>
+          <CompetitorsView 
+            lang={lang}
+            competitorSearch={competitorSearch}
+            setCompetitorSearch={setCompetitorSearch}
+            setTempCompetitorTrack={setTempCompetitorTrack}
+            setIsAddingCompetitorTrack={setIsAddingCompetitorTrack}
+            competitorTracks={competitorTracks}
+            deleteCompetitorTrack={deleteCompetitorTrack}
+            t={t}
+          />
         )}
 
         {view === 'History' && (
-          <div className="h-full flex flex-col relative animate-fadeIn pb-24 overflow-hidden">
-            {/* Logic: History Tab Toggle */}
-            <div className="flex bg-slate-200/50 p-1 rounded-xl w-full max-w-[280px] mx-auto mb-3 shrink-0">
-              <button onClick={() => { setHistoryTab('routes'); setSelectedOrderForDetail(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${historyTab === 'routes' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500'}`}>Routes</button>
-              <button onClick={() => { setHistoryTab('orders'); setSelectedOrderForDetail(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${historyTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500'}`}>Orders</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto scrollbar-hide">
-              {selectedOrderForDetail ? (
-                <div className="animate-fadeIn p-3">
-                  <button onClick={() => setSelectedOrderForDetail(null)} className="mb-3 flex items-center gap-1.5 text-[9px] font-black text-indigo-600 uppercase bg-white px-4 py-2 rounded-full border border-indigo-100 shadow-sm transition-all active:scale-95">
-                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeWidth="3" d="M15 19l-7-7 7-7" /></svg> Back to List
-                  </button>
-                  {renderOrderDetail(selectedOrderForDetail)}
-                </div>
-              ) : historyTab === 'routes' ? (
-                <div className="space-y-2 pb-6">
-                  <h4 className="font-bold text-slate-700 flex items-center gap-1.5 px-4 text-left text-xs">
-                    <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {t('history')}
-                  </h4>
-                  <div className="px-4 space-y-2">
-                    {activeRoutes.length > 0 ? activeRoutes.map(route => (
-                      <div key={route.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm cursor-pointer hover:border-indigo-200 transition-all active:scale-[0.98]" onClick={() => setViewingRoute(route)}>
-                        <div className="flex justify-between items-center">
-                          <div className="flex flex-col flex-1 text-left">
-                            <span className="text-xs font-black text-slate-800 leading-tight">{route.customAreaName || 'Trip'}</span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{route.day ? `${route.day}, ` : ''}{route.date}</span>
-                          </div>
-                          <div className="flex items-center gap-2 ml-3">
-                            <div className="flex gap-1">
-                              <span className="text-[8px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md">{route.path.length} Pts</span>
-                              <span className="text-[8px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md">{route.stops?.length || 0} Stops</span>
-                            </div>
-                            <button 
-                              type="button"
-                              onClick={(e) => deleteRoute(route.id, e)}
-                              className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all active:scale-90"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )) : <div className="py-12 text-center text-slate-400 text-xs">No route history yet.</div>}
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 pb-6">
-                  <h4 className="font-bold text-slate-700 flex items-center gap-1.5 px-4 text-left text-xs">
-                    <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
-                    </svg>
-                    Recent Orders
-                  </h4>
-                  <div className="px-4 space-y-2">
-                    {orders.length > 0 ? orders.map(order => (
-                      <div key={order.id} onClick={() => setSelectedOrderForDetail(order)} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex justify-between items-center cursor-pointer transition-all active:scale-[0.98]">
-                        <div className="text-left">
-                          <p className="text-[9px] font-black text-indigo-400 leading-none mb-0.5">{order.date}</p>
-                          <h5 className="font-bold text-slate-800 text-[11px] truncate max-w-[140px]">{order.shopName}</h5>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs font-black text-slate-900 leading-none mb-0.5">৳{order.total}</p>
-                          <p className="text-[8px] font-black text-slate-400 uppercase">#{order.id.slice(-5).toUpperCase()}</p>
-                        </div>
-                      </div>
-                    )) : <div className="py-12 text-center text-slate-400 text-xs">No orders placed yet.</div>}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          <HistoryView 
+            historyTab={historyTab}
+            setHistoryTab={setHistoryTab}
+            selectedOrderForDetail={selectedOrderForDetail}
+            setSelectedOrderForDetail={setSelectedOrderForDetail}
+            renderOrderDetail={renderOrderDetail}
+            activeRoutes={activeRoutes}
+            setViewingRoute={setViewingRoute}
+            deleteRoute={deleteRoute}
+            orders={orders}
+            t={t}
+          />
         )}
 
         {view === 'Settings' && (
-          <div className="flex flex-col h-full gap-4 animate-fadeIn pb-24 overflow-y-auto scrollbar-hide">
-            <div className="flex justify-between items-center">
-               <h4 className="font-bold text-slate-700 flex items-center gap-1.5 text-sm">
-                 <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 000 6z" />
-                 </svg>
-                 {isManagingCatalog ? t('catalogSection') : isManagingShops ? t('manageShops') : isManagingPlaces ? t('managePlaces') : t('settings')}
-               </h4>
-               {(isManagingCatalog || isManagingShops || isManagingPlaces) && (
-                 <button onClick={() => { setIsManagingCatalog(false); setIsManagingShops(false); setIsManagingPlaces(false); }} className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full text-[10px] font-bold border border-slate-200">Back</button>
-               )}
-            </div>
-
-            {isManagingCatalog ? (
-              <div className="space-y-4">
-                 <div className="flex justify-between items-center bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100 px-4">
-                    <p className="text-[10px] font-bold text-indigo-700">Total Products: {activeProducts.length}</p>
-                    <button onClick={() => { setEditingProduct({ status: 'Active' }); setIsEditingProduct(true); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-lg shadow-indigo-100 transition-all active:scale-95">{t('addProduct')}</button>
-                 </div>
-                 <div className="space-y-2">
-                    {activeProducts.length > 0 ? activeProducts.map(product => {
-                      const finalPrice = calculateFinalPrice(product.price, product.discount);
-                      return (
-                        <div key={product.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-slate-50 flex-shrink-0 overflow-hidden border border-slate-100">
-                            {product.photo ? <img src={product.photo} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
-                          </div>
-                          <div className="flex-1 min-w-0 text-left">
-                            <div className="flex items-center gap-1">
-                              <h6 className="font-bold text-slate-800 text-xs truncate leading-tight">{product.name}</h6>
-                              {product.status === 'Inactive' && <span className="bg-slate-100 text-slate-400 text-[7px] px-1 rounded uppercase">Disabled</span>}
-                            </div>
-                            <div className="flex gap-1.5 items-center mt-0.5">
-                              <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded uppercase tracking-tighter">৳{finalPrice}</span>
-                              {product.discount > 0 && <span className="text-[7px] text-slate-400 line-through font-bold">৳{product.price}</span>}
-                              {product.weight && <span className="text-[8px] font-bold text-slate-400 border-l pl-1.5 border-slate-200">{product.weight}</span>}
-                              <span className="text-[8px] font-bold text-emerald-600 ml-auto">Qty: {product.stock}</span>
-                            </div>
-                          </div>
-                          <div className="flex gap-1.5">
-                            <button onClick={() => { setEditingProduct(product); setIsEditingProduct(true); }} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-indigo-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                            <button onClick={(e) => deleteProduct(product.id, e)} className="p-2 bg-rose-50 text-rose-400 rounded-lg hover:text-rose-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                          </div>
-                        </div>
-                      );
-                    }) : <div className="py-20 text-center text-slate-300 italic text-sm">Catalog is empty. Add products to start.</div>}
-                 </div>
-              </div>
-            ) : isManagingShops ? (
-              <div className="space-y-4">
-                 <div className="flex justify-between items-center bg-rose-50/50 p-3 rounded-2xl border border-rose-100 px-4">
-                    <p className="text-[10px] font-bold text-rose-700">Total Active Shops: {activeShops.length}</p>
-                 </div>
-                 <div className="space-y-2">
-                    {activeShops.length > 0 ? activeShops.map(shop => (
-                      <div key={shop.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-slate-50 flex-shrink-0 overflow-hidden border border-slate-100">
-                          {shop.photo ? <img src={shop.photo} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 font-bold text-[10px]">{shop.name.charAt(0)}</div>}
-                        </div>
-                        <div className="flex-1 min-w-0 text-left">
-                          <h6 className="font-bold text-slate-800 text-xs truncate leading-tight">{shop.name}</h6>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <p className="text-[9px] text-slate-400 font-bold">{shop.ownerName}</p>
-                            <span className="text-slate-200 text-[8px]">•</span>
-                            <span className={`text-[8px] font-black uppercase tracking-tighter ${shop.status === 'Inactive' ? 'text-rose-500' : 'text-emerald-500'}`}>
-                              {shop.status === 'Inactive' ? t('inactivePartner') : t('activePartner')}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex gap-1.5">
-                          <button onClick={(e) => toggleShopStatus(shop.id, e)} className={`p-2 rounded-lg transition-colors ${shop.status === 'Inactive' ? 'bg-emerald-50 text-emerald-500 hover:text-emerald-600' : 'bg-slate-50 text-slate-400 hover:text-slate-600'}`}>
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </button>
-                          <button onClick={(e) => deleteShop(shop.id, e)} className="p-2 bg-rose-50 text-rose-400 rounded-lg hover:text-rose-600 transition-colors">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </div>
-                      </div>
-                    )) : <div className="py-20 text-center text-slate-300 italic text-sm">No shops found.</div>}
-                 </div>
-              </div>
-            ) : isManagingPlaces ? (
-              <div className="space-y-4">
-                 <div className="flex justify-between items-center bg-sky-50/50 p-3 rounded-2xl border border-sky-100 px-4">
-                    <p className="text-[10px] font-bold text-sky-700">Total Saved Places: {activePlaces.length}</p>
-                    <button onClick={() => { setEditingPlace({}); setIsEditingPlace(true); }} className="bg-sky-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-lg shadow-sky-100 transition-all active:scale-95">{t('addPlace')}</button>
-                 </div>
-                 <div className="space-y-2">
-                    {activePlaces.length > 0 ? activePlaces.map(place => (
-                      <div key={place.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-sky-50 flex-shrink-0 flex items-center justify-center border border-sky-100 text-sky-600">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        </div>
-                        <div className="flex-1 min-w-0 text-left">
-                          <h6 className="font-bold text-slate-800 text-xs truncate leading-tight">{place.name}</h6>
-                          <p className="text-[9px] text-slate-400 font-bold truncate">{place.description || 'No description'}</p>
-                        </div>
-                        <div className="flex gap-1.5">
-                          <button onClick={() => { setEditingPlace(place); setIsEditingPlace(true); }} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-sky-600 transition-colors">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                          </button>
-                          <button onClick={(e) => deletePlace(place.id, e)} className="p-2 bg-rose-50 text-rose-400 rounded-lg hover:text-rose-600 transition-colors">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </div>
-                      </div>
-                    )) : <div className="py-20 text-center text-slate-300 italic text-sm">No saved places found.</div>}
-                 </div>
-              </div>
-            ) : (
-              <>
-                <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 relative overflow-hidden group">
-                  <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex-shrink-0 overflow-hidden border-2 border-white shadow-md relative z-10">
-                    {userProfile.photo ? (
-                      <img src={userProfile.photo} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-indigo-300">
-                        <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0 text-left relative z-10">
-                    <h5 className="font-black text-slate-800 text-sm truncate leading-tight">
-                      {userProfile.name || 'Set Your Name'}
-                    </h5>
-                    <p className="text-[10px] font-bold text-indigo-600 mt-0.5">
-                      {userProfile.designation || 'Designation'}
-                    </p>
-                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">
-                      ID: {userProfile.employeeId || 'N/A'}
-                    </p>
-                    {userProfile.phone && (
-                      <p className="text-[9px] text-slate-400 font-bold mt-0.5">
-                        {userProfile.phone}
-                      </p>
-                    )}
-                  </div>
-                  <button 
-                    onClick={() => { setTempProfile(userProfile); setIsEditingProfile(true); }}
-                    className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all active:scale-95 relative z-10"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/50 rounded-full translate-x-8 -translate-y-8 group-hover:scale-110 transition-transform"></div>
-                </div>
-
-                <div className="space-y-2">
-                  <button 
-                    onClick={() => setIsManagingCatalog(true)}
-                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('catalogSection')}</p>
-                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activeProducts.length} Registered Items</p>
-                      </div>
-                    </div>
-                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-
-                  <button 
-                    onClick={() => setIsManagingShops(true)}
-                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-xl flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-colors">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('manageShops')}</p>
-                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activeShops.length} Active Shops</p>
-                      </div>
-                    </div>
-                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-
-                  <button 
-                    onClick={() => setIsManagingPlaces(true)}
-                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 rounded-xl flex items-center justify-center group-hover:bg-sky-600 group-hover:text-white transition-colors">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9m0 0l-1.414-1.414m1.414 1.414L15.828 18.07M12 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('managePlaces')}</p>
-                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activePlaces.length} Saved Places</p>
-                      </div>
-                    </div>
-                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-
-                  <button 
-                    onClick={() => setIsDarkMode(!isDarkMode)}
-                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                        {isDarkMode ? (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 5a7 7 0 100 14 7 7 0 000-14z" /></svg>
-                        ) : (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
-                        )}
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('theme')}</p>
-                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{isDarkMode ? t('darkMode') : t('lightMode')}</p>
-                      </div>
-                    </div>
-                    <div className={`w-8 h-4 rounded-full relative transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isDarkMode ? 'left-4.5' : 'left-0.5'}`}></div>
-                    </div>
-                  </button>
-
-                  <button 
-                    onClick={() => { setEditingDealer({}); setIsEditingDealer(true); }}
-                    className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Add Dealer</p>
-                        <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{activeDealers.length} Current Dealers</p>
-                      </div>
-                    </div>
-                    <svg className="w-4 h-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                </div>
-
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm space-y-4">
-                  <div className="flex items-center gap-3 mb-1">
-                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{t('notificationSettings')}</p>
-                      <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{t('pushNotifications')}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {[
-                      { key: 'orderConfirmation', label: t('orderConfirmation') },
-                      { key: 'targetReminder', label: t('targetReminder') },
-                      { key: 'newShopDetection', label: t('newShopDetection') }
-                    ].map((pref) => (
-                      <div key={pref.key} className="flex items-center justify-between py-1">
-                        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{pref.label}</span>
-                        <button 
-                          onClick={() => setNotificationPrefs(prev => ({ ...prev, [pref.key]: !prev[pref.key as keyof NotificationPreferences] }))}
-                          className={`w-10 h-5 rounded-full relative transition-colors ${notificationPrefs[pref.key as keyof NotificationPreferences] ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}
-                        >
-                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${notificationPrefs[pref.key as keyof NotificationPreferences] ? 'left-6' : 'left-1'}`}></div>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-white dark:bg-slate-800 p-5 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm space-y-4 relative overflow-hidden">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
-                      <Database className="w-5 h-5" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Data Management</p>
-                      <p className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">Backup & Restore</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 relative z-10">
-                    <button 
-                      onClick={handleExportData}
-                      className="bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-slate-100 dark:border-slate-700 p-4 rounded-2xl flex items-center justify-between group transition-all active:scale-[0.98]"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-                          <Download className="w-5 h-5" />
-                        </div>
-                        <div className="text-left">
-                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Export Local Backup</p>
-                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Saves shops, areas & route history as JSON</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors" />
-                    </button>
-
-                    <button 
-                      onClick={handleImportClick}
-                      className="bg-slate-50 dark:bg-slate-900/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-slate-100 dark:border-slate-700 p-4 rounded-2xl flex items-center justify-between group transition-all active:scale-[0.98]"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-                          <Upload className="w-5 h-5" />
-                        </div>
-                        <div className="text-left">
-                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">Import Local Backup</p>
-                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Merge external file with existing data</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-400 transition-colors" />
-                    </button>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <button 
-                        onClick={clearDemoData}
-                        className="bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-100 dark:border-amber-900/50 p-3 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95"
-                      >
-                        <Trash2 className="w-5 h-5 text-amber-600" />
-                        <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest">Clear Demo Data</span>
-                      </button>
-                      <button 
-                        onClick={resetApp}
-                        className="bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-100 dark:border-rose-900/50 p-3 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95"
-                      >
-                        <RefreshCw className="w-5 h-5 text-rose-600" />
-                        <span className="text-[9px] font-black text-rose-700 uppercase tracking-widest">Reset App</span>
-                      </button>
-                    </div>
-
-                    <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
-                  </div>
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 dark:bg-indigo-900/10 rounded-full -translate-y-12 translate-x-12 blur-3xl pointer-events-none"></div>
-                </div>
-
-                <div className="bg-slate-100 dark:bg-slate-900 p-4 rounded-2xl text-center space-y-1">
-                  <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-tighter">App Information</p>
-                  <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 leading-tight">FieldPro Sales Assistant v1.2.4<br/>Data is stored strictly on this device.</p>
-                </div>
-              </>
-            )}
-          </div>
+          <SettingsView 
+            isManagingCatalog={isManagingCatalog}
+            setIsManagingCatalog={setIsManagingCatalog}
+            isManagingShops={isManagingShops}
+            setIsManagingShops={setIsManagingShops}
+            isManagingPlaces={isManagingPlaces}
+            setIsManagingPlaces={setIsManagingPlaces}
+            t={t}
+            activeProducts={activeProducts}
+            setEditingProduct={setEditingProduct}
+            setIsEditingProduct={setIsEditingProduct}
+            calculateFinalPrice={calculateFinalPrice}
+            deleteProduct={deleteProduct}
+            activeShops={activeShops}
+            toggleShopStatus={toggleShopStatus}
+            deleteShop={deleteShop}
+            activePlaces={activePlaces}
+            setEditingPlace={setEditingPlace}
+            setIsEditingPlace={setIsEditingPlace}
+            deletePlace={deletePlace}
+            userProfile={userProfile}
+            setTempProfile={setTempProfile}
+            setIsEditingProfile={setIsEditingProfile}
+            isDarkMode={isDarkMode}
+            setIsDarkMode={setIsDarkMode}
+            activeDealers={activeDealers}
+            setEditingDealer={setEditingDealer}
+            setIsEditingDealer={setIsEditingDealer}
+            notificationPrefs={notificationPrefs}
+            setNotificationPrefs={setNotificationPrefs}
+            handleExportData={handleExportData}
+            handleImportClick={handleImportClick}
+            clearDemoData={clearDemoData}
+            resetApp={resetApp}
+            fileInputRef={fileInputRef}
+            handleFileChange={handleFileChange}
+          />
         )}
 
       </main>
@@ -3910,174 +2994,36 @@ const App: React.FC = () => {
         })()}
 
       {showOrderSystem && (
-        <div className="fixed inset-0 z-[4000] bg-white flex flex-col animate-fadeIn overflow-hidden">
-          <header className="bg-white border-b border-slate-100 p-3 flex items-center gap-3 shrink-0 shadow-sm">
-            <button 
-              onClick={() => { setShowOrderSystem(false); setOrderCart([]); setOrderReplacements([]); setOrderShop(null); setSelectedOrderForDetail(null); }} 
-              className="p-1.5 text-slate-400 hover:text-indigo-600 transition-all active:scale-90"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <div className="flex-1 text-left">
-              <h3 className="text-base font-black text-slate-800 tracking-tight uppercase">{t('orderTaking')}</h3>
-              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest truncate">{orderShop ? orderShop.name : "Select Shop"}</p>
-            </div>
-            {orderShop && !selectedOrderForDetail && (
-              <div className="flex bg-slate-50 p-1 rounded-lg">
-                <button onClick={() => setOrderTab('taking')} className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${orderTab === 'taking' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Order</button>
-                <button onClick={() => setOrderTab('history')} className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${orderTab === 'history' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Recent</button>
-              </div>
-            )}
-          </header>
-
-          {!orderShop ? (
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1.5 mb-1.5 text-left">Target Shop</p>
-               <div className="space-y-2.5">
-                 {activeShops.map(shop => (
-                   <button key={shop.id} onClick={() => setOrderShop(shop)} className="w-full bg-slate-50 p-2.5 rounded-xl border border-transparent hover:border-indigo-100 flex items-center justify-between group active:scale-[0.98] transition-all">
-                     <div className="flex flex-col text-left">
-                       <span className="font-bold text-slate-800 text-[11px]">{shop.name}</span>
-                       <span className="text-[7px] text-slate-400 font-bold uppercase tracking-wider">{shop.ownerName}</span>
-                     </div>
-                     <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-slate-300 group-hover:text-indigo-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg></div>
-                   </button>
-                 ))}
-               </div>
-            </div>
-          ) : selectedOrderForDetail ? (
-            <div className="flex-1 overflow-y-auto p-3 bg-slate-50/30">
-               <div className="mb-3 text-left"><button onClick={() => setSelectedOrderForDetail(null)} className="text-[9px] font-black text-indigo-600 uppercase bg-white px-4 py-2 rounded-full border border-indigo-100 shadow-sm transition-all active:scale-95">Back to history</button></div>
-               {renderOrderDetail(selectedOrderForDetail)}
-            </div>
-          ) : orderTab === 'taking' ? (
-            <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/30">
-               <div className="bg-white p-3 space-y-2.5 shrink-0">
-                 <div className="relative">
-                   <input type="text" placeholder="Search products..." className="w-full bg-slate-50 rounded-xl py-2.5 pl-10 pr-3 text-xs font-bold focus:bg-white border-2 border-transparent focus:border-indigo-50 transition-all outline-none" value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
-                   <svg className="w-3.5 h-3.5 absolute left-3.5 top-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                 </div>
-                 <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
-                    {categories.map(cat => (
-                      <button key={cat} onClick={() => setOrderSearch(cat === 'All' ? '' : cat)} className={`px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all ${orderSearch === cat ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400'}`}>{cat}</button>
-                    ))}
-                 </div>
-               </div>
-               <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
-                 {orderFilteredProducts.length > 0 ? (
-                   <div className="grid grid-cols-1 gap-1.5">
-                     {orderFilteredProducts.map(p => {
-                       const inCart = orderCart.find(item => item.productId === p.id);
-                       return (
-                         <div key={p.id} className="bg-white p-1.5 rounded-lg border border-slate-50 shadow-sm flex items-center gap-2">
-                           <div className="w-8 h-8 rounded-md bg-slate-50 flex-shrink-0 overflow-hidden border border-slate-100 flex items-center justify-center text-slate-200">
-                             {p.photo ? <img src={p.photo} className="w-full h-full object-cover" /> : <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg>}
-                           </div>
-                           <div className="flex-1 min-w-0 text-left">
-                             <h6 className="font-bold text-slate-800 text-[10px] truncate">{p.name}</h6>
-                             <div className="flex items-center gap-1.5">
-                               <span className="text-[8px] font-black text-indigo-600">৳{calculateFinalPrice(p.price, p.discount)}</span>
-                               <span className="text-[6px] text-slate-400 font-bold uppercase">{p.weight}</span>
-                             </div>
-                           </div>
-                           {inCart ? (
-                             <div className="flex items-center bg-indigo-50 rounded-lg overflow-hidden border border-indigo-100">
-                               <button onClick={() => updateCartQty(p.id, -1)} className="p-1.5 text-indigo-600 active:bg-indigo-100"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M20 12H4" /></svg></button>
-                               <span className="w-5 text-center text-[10px] font-black text-indigo-700">{inCart.quantity}</span>
-                               <button onClick={() => updateCartQty(p.id, 1)} className="p-1.5 text-indigo-600 active:bg-indigo-100"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>
-                             </div>
-                           ) : (
-                             <button onClick={() => addToCart(p)} className="bg-slate-100 text-slate-500 p-2 rounded-lg hover:bg-indigo-600 hover:text-white transition-all active:scale-90"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>
-                           )}
-                         </div>
-                       );
-                     })}
-                   </div>
-                 ) : ( <div className="py-12 text-center text-slate-300 italic text-xs">No products found.</div> )}
-               </div>
-               {orderCart.length > 0 && (
-                 <div className="bg-white border-t border-slate-100 p-3 pb-5 space-y-2.5 shadow-[0_-20px_40px_-15px_rgba(0,0,0,0.05)] animate-slideUp text-left">
-                    <div className="flex justify-between items-end">
-                      <div className="flex flex-col">
-                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-[0.1em]">Total Order Value</span>
-                        <span className="text-lg font-black text-slate-900 leading-none">৳{cartSummary.total}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => setShowReplacementModal(true)} className="text-[8px] font-black text-indigo-600 uppercase border border-indigo-100 px-2.5 py-1 rounded-md active:bg-indigo-50 flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                          {t('productReplacement')}
-                        </button>
-                        <button onClick={() => setOrderCart([])} className="text-[8px] font-black text-rose-400 uppercase border border-rose-100 px-2.5 py-1 rounded-md active:bg-rose-50">Reset Cart</button>
-                      </div>
-                    </div>
-
-                    {orderReplacements.length > 0 && (
-                      <div className="bg-indigo-50/50 rounded-xl p-3 space-y-2 border border-indigo-100/50">
-                        <h6 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1.5">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3" /></svg>
-                          {t('replacementSection')}
-                        </h6>
-                        <div className="space-y-1.5">
-                          {orderReplacements.map(r => (
-                            <div key={r.id} className="flex justify-between items-center bg-white/60 p-2 rounded-lg border border-indigo-50">
-                              <div className="text-[9px] font-bold text-slate-600">
-                                <span className="text-indigo-600">{r.productName} ({r.quantity})</span>
-                              </div>
-                              <button onClick={() => removeReplacement(r.id)} className="text-rose-400 p-1 hover:bg-rose-50 rounded-md transition-all">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <button onClick={confirmOrder} className="w-full bg-indigo-600 text-white font-black py-2.5 rounded-lg shadow-xl shadow-indigo-100 transition-all active:scale-95 uppercase tracking-widest text-[9px]">Confirm Order</button>
-                 </div>
-               )}
-            </div>
-          ) : (
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/30 scrollbar-hide">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1.5 mb-1.5 text-left">Orders for {orderShop?.name || 'Shop'}</p>
-              {orderShop && orders.filter(o => o.shopId === orderShop.id).length > 0 ? (
-                orders.filter(o => o.shopId === orderShop?.id).map(order => (
-                  <div key={order.id} onClick={() => setSelectedOrderForDetail(order)} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm space-y-2.5 text-left active:scale-[0.98] transition-all cursor-pointer">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">{order.date}</span>
-                        <h5 className="font-black text-slate-800 text-xs">Order #{order.id.slice(-5)}</h5>
-                      </div>
-                      <div className="text-right flex flex-col items-end gap-1">
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              downloadOrderPDF(order);
-                            }}
-                            className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all active:scale-90"
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                          </button>
-                          <span className="text-xs font-black text-indigo-600 leading-none">৳{order.total}</span>
-                        </div>
-                        <p className="text-[7px] text-slate-400 font-bold">{order.items.length} items</p>
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 rounded-xl p-2.5 space-y-1">
-                       {order.items.slice(0, 3).map((it, idx) => (
-                         <div key={idx} className="flex justify-between text-[9px] font-medium text-slate-600">
-                           <span>{it.productName} x {it.quantity}</span>
-                           <span>৳{calculateFinalPrice(it.price, it.discount) * it.quantity}</span>
-                         </div>
-                       ))}
-                       {order.items.length > 3 && <p className="text-[8px] text-indigo-400 font-bold italic pt-0.5">+ {order.items.length - 3} more items</p>}
-                    </div>
-                  </div>
-                ))
-              ) : ( <div className="py-12 text-center text-slate-300 italic text-xs">No recent orders for this shop.</div> )}
-            </div>
-          )}
-        </div>
+        <OrderSystemOverlay 
+          orderTab={orderTab}
+          setOrderTab={setOrderTab}
+          setShowOrderSystem={setShowOrderSystem}
+          orderShop={orderShop}
+          products={products}
+          orderFilteredProducts={orderFilteredProducts}
+          orderSearch={orderSearch}
+          setOrderSearch={setOrderSearch}
+          categories={categories}
+          addToCart={addToCart}
+          updateCartQty={updateCartQty}
+          orderCart={orderCart}
+          cartSummary={cartSummary}
+          setShowReplacementModal={setShowReplacementModal}
+          setOrderCart={setOrderCart}
+          orderReplacements={orderReplacements}
+          removeReplacement={removeReplacement}
+          confirmOrder={confirmOrder}
+          orders={orders}
+          selectedOrderForDetail={selectedOrderForDetail}
+          setSelectedOrderForDetail={setSelectedOrderForDetail}
+          renderOrderDetail={renderOrderDetail}
+          downloadOrderPDF={downloadOrderPDF}
+          calculateFinalPrice={calculateFinalPrice}
+          t={t}
+          setOrderReplacements={setOrderReplacements}
+          setOrderShop={setOrderShop} 
+          activeShops={activeShops}
+        />
       )}
 
       {showReplacementModal && (
@@ -4389,129 +3335,44 @@ const App: React.FC = () => {
       )}
 
       {isManagingAreas && (
-        <div className="fixed inset-0 z-[700] bg-slate-900/60 backdrop-blur-sm p-4 flex justify-center overflow-y-auto items-start md:items-center">
-          <div className="bg-white w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl animate-scaleUp my-4 md:my-auto">
-            <div className="p-4 bg-indigo-700 text-white flex justify-between items-center"><h3 className="text-sm font-bold uppercase tracking-wider">{lang === 'en' ? 'Manage Areas' : 'এলাকা ব্যবস্থাপনা'}</h3><button onClick={() => setIsManagingAreas(false)} className="transition-all active:scale-90"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button></div>
-            <div className="p-4 space-y-4 text-left">
-              <form onSubmit={addArea} className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Add New Area</label>
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex gap-1.5">
-                    <input type="text" placeholder="e.g. Uttara Section 4" className="flex-1 bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200" value={newAreaName} onFocus={handleInputFocus} onChange={e => setNewAreaName(e.target.value)} />
-                    <button type="submit" className="bg-indigo-600 text-white p-2 rounded-lg transition-all active:scale-95"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg></button>
-                  </div>
-                  <select className="w-full bg-slate-50 rounded-lg px-3 py-1.5 text-[10px] font-bold border border-slate-200" value={newAreaDay} onChange={e => setNewAreaDay(e.target.value)}>{WEEKDAYS.map(day => <option key={day} value={day}>{day}</option>)}</select>
-                </div>
-              </form>
-              <div className="max-h-[200px] overflow-y-auto space-y-1.5 scrollbar-hide">
-                {activeAreas.map(area => (
-                  <div key={area.id} className="flex flex-col gap-0.5 p-2 bg-slate-50 border border-slate-100 rounded-lg">
-                    <div className="flex items-center justify-between"><input type="text" className="bg-transparent font-bold text-slate-700 text-xs flex-1 outline-none focus:bg-white px-1 rounded" value={area.name} onChange={(e) => updateAreaDetails(area.id, e.target.value, area.assignedDay || '')} /><button type="button" onClick={(e) => deleteArea(area.id, e)} className="text-rose-500 p-1.5 transition-all active:scale-90"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button></div>
-                    <select className="bg-transparent text-[9px] font-black uppercase text-indigo-500 outline-none w-fit" value={area.assignedDay} onChange={(e) => updateAreaDetails(area.id, area.name, e.target.value)}>{WEEKDAYS.map(day => <option key={day} value={day}>{day}</option>)}</select>
-                  </div>
-                ))}
-              </div>
-              <button onClick={() => setIsManagingAreas(false)} className="w-full bg-slate-100 text-slate-600 font-bold py-2.5 rounded-lg text-xs transition-all active:scale-95">{t('cancel')}</button>
-            </div>
-          </div>
-        </div>
+        <AreaManagementModal 
+          lang={lang}
+          t={t}
+          setIsManagingAreas={setIsManagingAreas}
+          addArea={addArea}
+          newAreaName={newAreaName}
+          handleInputFocus={handleInputFocus}
+          setNewAreaName={setNewAreaName}
+          newAreaDay={newAreaDay}
+          setNewAreaDay={setNewAreaDay}
+          WEEKDAYS={WEEKDAYS}
+          activeAreas={activeAreas}
+          updateAreaDetails={updateAreaDetails}
+          deleteArea={deleteArea}
+        />
       )}
 
       {viewingShop && (
-        <div className="fixed inset-0 z-[500] bg-slate-900/80 backdrop-blur-sm p-3 flex items-center justify-center overflow-y-auto">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl animate-scaleUp my-auto relative">
-            <button onClick={() => setViewingShop(null)} className="absolute top-3 right-3 z-20 bg-black/20 backdrop-blur-md text-white p-1.5 rounded-full transition-all active:scale-90"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
-            <div className="h-48 w-full bg-slate-100 relative overflow-hidden cursor-pointer" onClick={() => viewingShop.photo && setViewingFullPhoto(viewingShop.photo)}>
-              {viewingShop.photo ? <img src={viewingShop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-200"><svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none"></div>
-              <div className="absolute bottom-12 left-6 flex items-center gap-1.5 pointer-events-none"><span className="bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full border border-indigo-400/50 uppercase tracking-widest shadow-lg">{activeAreas.find(a => a.id === viewingShop.areaId)?.name}</span>{viewingShop.subArea && <span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">{viewingShop.subArea}</span>}<span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">Verified</span></div>
-            </div>
-            <div className="bg-white px-6 pb-8 pt-12 -mt-10 rounded-t-[2.5rem] relative z-10 shadow-[0_-25px_50px_-12px_rgba(0,0,0,0.3)] text-left">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex-1 min-w-0 pr-3">
-                  <div className="flex items-center gap-2"><h2 className="text-2xl font-black text-slate-900 leading-tight mb-0.5">{viewingShop.name}</h2>{isVisitedToday(viewingShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-lg animate-scaleUp"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}</div>
-                  <div className="flex items-center gap-1">
-                    <div className={`w-1 h-1 rounded-full animate-pulse ${viewingShop.status === 'Inactive' ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-                    <span className={`text-[8px] font-black uppercase tracking-widest ${viewingShop.status === 'Inactive' ? 'text-rose-500' : 'text-slate-400'}`}>
-                      {viewingShop.status === 'Inactive' ? t('inactivePartner') : t('activePartner')}
-                    </span>
-                  </div>
-                </div>
-                <a href={`tel:${viewingShop.phone}`} className="bg-emerald-500 text-white p-3.5 rounded-xl shadow-lg shadow-emerald-200 transition-all active:scale-90 hover:bg-emerald-600"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg></a>
-              </div>
-              <div className="space-y-4">
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('ownerName')}</p><p className="text-sm font-bold text-slate-700 leading-tight truncate">{viewingShop.ownerName}</p></div>
-                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('dues')}</p><p className={`text-sm font-black leading-tight truncate ${getShopBalance(viewingShop.id) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>৳{getShopBalance(viewingShop.id)}</p></div>
-                 </div>
-
-                 {(isSpecialDayNear(viewingShop.birthday) || isSpecialDayNear(viewingShop.anniversary)) && (
-                   <div className="bg-amber-50/50 dark:bg-amber-900/10 p-3 rounded-2xl border border-amber-100 dark:border-amber-900/30 space-y-2">
-                      <h4 className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest px-1">{t('specialDays')}</h4>
-                      <div className="grid grid-cols-2 gap-2">
-                        {isSpecialDayNear(viewingShop.birthday) && (
-                          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-xl border border-amber-100/50 dark:border-amber-900/20 shadow-sm">
-                            <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 5a3 3 0 015-2.236A3 3 0 0114.83 6H16a2 2 0 110 4h-5V9a1 1 0 10-2 0v1H4a2 2 0 110-4h1.17C5.06 5.687 5 5.35 5 5zm4 1V5a1 1 0 10-1 1h1zm3 0a1 1 0 10-1-1v1h1z" clipRule="evenodd" /><path d="M9 11H3v5a2 2 0 002 2h4v-7zM11 18h4a2 2 0 002-2v-5h-6v7z" clipRule="evenodd" /></svg></div>
-                            <div className="min-w-0"><p className="text-[7px] font-black text-amber-400 dark:text-amber-600 uppercase tracking-tighter leading-none mb-0.5">{t('birthday')}</p><p className="text-[10px] font-bold text-amber-900 dark:text-amber-200 truncate">{new Date(viewingShop.birthday).toLocaleDateString(lang === 'en' ? 'en-US' : 'bn-BD', { day: 'numeric', month: 'long' })}</p></div>
-                          </div>
-                        )}
-                        {isSpecialDayNear(viewingShop.anniversary) && (
-                          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-xl border border-amber-100/50 dark:border-amber-900/20 shadow-sm">
-                            <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg></div>
-                            <div className="min-w-0"><p className="text-[7px] font-black text-amber-400 dark:text-amber-600 uppercase tracking-tighter leading-none mb-0.5">{t('anniversary')}</p><p className="text-[10px] font-bold text-amber-900 dark:text-amber-200 truncate">{new Date(viewingShop.anniversary).toLocaleDateString(lang === 'en' ? 'en-US' : 'bn-BD', { day: 'numeric', month: 'long' })}</p></div>
-                          </div>
-                        )}
-                      </div>
-                   </div>
-                 )}
-                 
-                 {/* Payment History Section - Replaced with a button to open a separate page/modal */}
-                 <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-                   <div className="flex justify-between items-center px-1">
-                     <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t('paymentHistory')}</h4>
-                     <div className="flex gap-2">
-                       <button 
-                         onClick={() => setShowPaymentHistory(true)}
-                         className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-lg border border-indigo-100 active:scale-95 transition-all uppercase tracking-tighter flex items-center gap-1"
-                       >
-                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                         {t('viewHistory')}
-                       </button>
-                       <button 
-                         onClick={() => { setTempPayment({ shopId: viewingShop.id, method: 'Cash' }); setShowPaymentModal(true); }}
-                         className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-100 active:scale-95 transition-all uppercase tracking-tighter flex items-center gap-1"
-                       >
-                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                         {t('collectPayment')}
-                       </button>
-                     </div>
-                   </div>
-                 </div>
-                 <div className="flex gap-2">
-                   <button onClick={() => toggleVisit(viewingShop.id)} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border shadow-sm active:scale-95 ${isVisitedToday(viewingShop.id) ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-slate-900 border-slate-800 text-white'}`}>{isVisitedToday(viewingShop.id) ? <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg> {t('unmarkVisited')}</> : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg> {t('markVisited')}</>}</button>
-                   <button onClick={() => { setOrderShop(viewingShop); setOrderTab('taking'); setShowOrderSystem(true); setViewingShop(null); }} className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-600 font-black text-[10px] uppercase rounded-xl shadow-sm active:scale-95 transition-all">Take Order</button>
-                 </div>
-                 <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-inner h-32"><MiniMap location={viewingShop.location} label={viewingShop.name} /></div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <button onClick={() => startNavigation(viewingShop)} className="flex-[1.5] bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-indigo-700 text-[10px] uppercase tracking-widest">
-                  <Navigation className="w-4 h-4" />
-                  {t('internalMap')}
-                </button>
-                <button 
-                  onClick={() => {
-                    const url = `https://www.google.com/maps/dir/?api=1&destination=${viewingShop.location.lat},${viewingShop.location.lng}&travelmode=driving`;
-                    window.open(url, '_blank');
-                  }} 
-                  className="flex-1 bg-white border-2 border-slate-100 text-slate-700 font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-slate-50 text-[10px] uppercase tracking-widest"
-                >
-                  <img src="https://www.google.com/images/branding/product/ico/maps15_24dp.png" className="w-4 h-4" alt="" />
-                  Google
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ShopDetailModal 
+          viewingShop={viewingShop}
+          setViewingShop={setViewingShop}
+          setViewingFullPhoto={setViewingFullPhoto}
+          activeAreas={activeAreas}
+          isVisitedToday={isVisitedToday}
+          t={t}
+          lang={lang}
+          getShopBalance={getShopBalance}
+          isSpecialDayNear={isSpecialDayNear}
+          setShowPaymentHistory={setShowPaymentHistory}
+          setTempPayment={setTempPayment}
+          setShowPaymentModal={setShowPaymentModal}
+          toggleVisit={toggleVisit}
+          setOrderShop={setOrderShop}
+          setOrderTab={setOrderTab}
+          setShowOrderSystem={setShowOrderSystem}
+          startNavigation={startNavigation}
+          updateShop={(updatedShop) => setShops(prev => prev.map(s => s.id === updatedShop.id ? updatedShop : s))}
+        />
       )}
 
       {showPaymentModal && (
@@ -4631,8 +3492,9 @@ const App: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <button type="button" onClick={captureCurrentLocation} className="bg-indigo-600 text-white text-[8px] font-black px-2.5 py-1.5 rounded-lg transition-all active:scale-95 shadow-sm uppercase tracking-tight">
-                    {t('updateLocation')}
+                  <button type="button" onClick={captureCurrentLocation} className="bg-indigo-600 text-white text-[9px] font-black px-3 py-1.5 rounded-lg transition-all active:scale-95 shadow-sm uppercase tracking-tight flex items-center gap-1.5">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    {t('useCurrentLocation')}
                   </button>
                 </div>
 
@@ -4713,7 +3575,7 @@ const App: React.FC = () => {
                     type="number" 
                     className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
                     value={tempCompetitorTrack.price || ''} 
-                    onChange={e => setTempCompetitorTrack(prev => ({ ...prev, price: e.target.value }))} 
+                    onChange={e => setTempCompetitorTrack(prev => ({ ...prev, price: Number(e.target.value) }))} 
                   />
                 </div>
                 <div>
@@ -5100,7 +3962,10 @@ const App: React.FC = () => {
                         type: 'error'
                       });
                     }
-                  }} className="bg-sky-600 text-white text-[9px] font-bold px-2.5 py-1 rounded-full transition-all active:scale-95">Current GPS</button>
+                  }} className="bg-sky-600 text-white text-[9px] font-bold px-3 py-1.5 rounded-lg transition-all active:scale-95 flex items-center gap-1.5">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    {t('useCurrentLocation')}
+                  </button>
                 </div>
                 {editingPlace?.location && <p className="text-[9px] text-sky-400 font-mono mb-1.5">Lat: {editingPlace.location.lat.toFixed(6)}, Lng: {editingPlace.location.lng.toFixed(6)}</p>}
                 <div className="h-48 rounded-lg overflow-hidden border border-sky-100">

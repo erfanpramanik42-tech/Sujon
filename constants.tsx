@@ -1,5 +1,7 @@
 import { Area, Translations, Shop, SalesRoute, Product } from './types';
 
+export const WEEKDAYS = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
+
 export const INITIAL_AREAS: Area[] = [
   { id: '1', name: 'Kallyanpur', assignedDay: 'শনিবার' },
   { id: '2', name: 'Majgram', assignedDay: 'রবিবার' },
@@ -271,5 +273,8 @@ export const TRANSLATIONS: Translations = {
   shop: { en: 'Shop', bn: 'দোকান' },
   locationStatus: { en: 'Location Status', bn: 'লোকেশন স্ট্যাটাস' },
   locationLocked: { en: 'Locked & Secured', bn: 'লক এবং সুরক্ষিত' },
-  updateLocation: { en: 'Update Location', bn: 'লোকেশন আপডেট করুন' }
+  updateLocation: { en: 'Update Location', bn: 'লোকেশন আপডেট করুন' },
+  useCurrentLocation: { en: 'Use Current Location', bn: 'বর্তমান অবস্থান ব্যবহার করুন' },
+  internalMap: { en: 'Internal Map', bn: 'ইন্টারনাল ম্যাপ' },
+  googleMaps: { en: 'Google Maps', bn: 'গুগল ম্যাপ' }
 };

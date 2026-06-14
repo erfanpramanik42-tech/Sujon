@@ -21,6 +21,13 @@ export interface StopPoint {
   timestamp: number;
 }
 
+export interface GalleryItem {
+  id: string;
+  photo: string; // base64
+  name: string;
+  role: string; // e.g., 'Owner', 'Helper'
+}
+
 export interface Shop {
   id: string;
   name: string;
@@ -28,6 +35,7 @@ export interface Shop {
   phone: string;
   subArea?: string;
   photo?: string; // base64
+  gallery?: GalleryItem[];
   status?: 'Active' | 'Inactive';
   location: GeoLocation;
   areaId: string;
@@ -35,6 +43,8 @@ export interface Shop {
   isArchived?: boolean;
   birthday?: string; // YYYY-MM-DD
   anniversary?: string; // YYYY-MM-DD
+  distance?: number; // meters (road distance if available)
+  birdDistance?: number; // meters (crow-flies)
 }
 
 export interface Visit {

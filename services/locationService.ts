@@ -5,7 +5,7 @@ import { GeoLocation } from '../types';
  * Calculates distance between two coordinates in meters using the Haversine formula.
  */
 export const calculateDistance = (loc1: GeoLocation, loc2: GeoLocation): number => {
-  const R = 6371e3; // Earth radius in meters
+  const R = 6378137; // Earth radius in meters (WGS84)
   const φ1 = (loc1.lat * Math.PI) / 180;
   const φ2 = (loc2.lat * Math.PI) / 180;
   const Δφ = ((loc2.lat - loc1.lat) * Math.PI) / 180;
@@ -14,7 +14,7 @@ export const calculateDistance = (loc1: GeoLocation, loc2: GeoLocation): number 
   const a =
     Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
     Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
 
   return R * c;
 };

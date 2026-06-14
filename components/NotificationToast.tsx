@@ -6,7 +6,7 @@ interface NotificationToastProps {
   title: string;
   message: React.ReactNode;
   onClose: () => void;
-  type?: 'success' | 'error';
+  type?: 'success' | 'error' | 'info';
 }
 
 export const NotificationToast: React.FC<NotificationToastProps> = ({ show, title, message, onClose, type = 'error' }) => {
@@ -21,9 +21,9 @@ export const NotificationToast: React.FC<NotificationToastProps> = ({ show, titl
 
   if (!show) return null;
 
-  const bgColor = type === 'success' ? 'bg-emerald-600' : 'bg-rose-600';
-  const borderColor = type === 'success' ? 'border-emerald-400/30' : 'border-rose-400/30';
-  const textColor = type === 'success' ? 'text-emerald-50' : 'text-rose-50';
+  const bgColor = type === 'success' ? 'bg-emerald-600' : type === 'info' ? 'bg-indigo-600' : 'bg-rose-600';
+  const borderColor = type === 'success' ? 'border-emerald-400/30' : type === 'info' ? 'border-indigo-400/30' : 'border-rose-400/30';
+  const textColor = type === 'success' ? 'text-emerald-50' : type === 'info' ? 'text-indigo-50' : 'text-rose-50';
 
   return (
     <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-sm px-6">

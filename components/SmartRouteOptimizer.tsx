@@ -39,7 +39,7 @@ export const SmartRouteOptimizer: React.FC<SmartRouteOptimizerProps> = ({
     setIsOptimizing(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
       const targetShops = shops.filter(s => selectedIds.has(s.id));
       
       const response = await ai.models.generateContent({
@@ -152,7 +152,7 @@ export const SmartRouteOptimizer: React.FC<SmartRouteOptimizerProps> = ({
                       }} 
                       className="bg-white border border-slate-100 p-3 rounded-2xl shadow-sm active:scale-95 transition-all"
                     >
-                      <img src="https://www.google.com/images/branding/product/ico/maps15_24dp.png" className="w-4 h-4" alt="G" />
+                      <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=64" className="w-4 h-4" alt="G" />
                     </button>
                   </div>
                 </div>

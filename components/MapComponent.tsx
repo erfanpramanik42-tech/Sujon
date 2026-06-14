@@ -60,6 +60,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   const [mapType, setMapType] = useState<'street' | 'satellite' | 'google' | 'hybrid'>('google');
   const [isRouting, setIsRouting] = useState(false);
   const [routingError, setRoutingError] = useState<string | null>(null);
+  const [useOsrmOnly, setUseOsrmOnly] = useState(false);
 
   // Internal Logic: Sticky Zoom Control
   const lastFitTargetId = useRef<string | null>(null);
@@ -426,11 +427,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (routeLineRef.current) routeLineRef.current.remove();
     routeLineRef.current = L.polyline(activeRoute.path.map(p => [p.lat, p.lng]), {
       color: isHistoryView ? '#1a73e8' : '#ef4444', 
-      weight: isHistoryView ? 6 : 4,
-      opacity: isHistoryView ? 0.9 : 0.6,
+      weight: 6,
+      opacity: 0.8,
       lineJoin: 'round',
       lineCap: 'round',
-      dashArray: isHistoryView ? null : '10, 10'
+      dashArray: null
     }).addTo(leafletMap.current);
 
     stopMarkersRef.current.forEach(m => m.remove());
@@ -495,12 +496,12 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       setIsRouting(true);
       setRoutingError(null);
       try {
-        const googleApiKey = process.env.GEMINI_API_KEY;
+        const googleApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
         let url = "";
         let isGoogle = false;
 
-        if (googleApiKey && googleApiKey.length > 20) {
-          url = `https://maps.googleapis.com/maps/api/directions/json?origin=${currentLocation.lat},${currentLocation.lng}&destination=${navigationTarget.location.lat},${navigationTarget.location.lng}&mode=${profile === 'driving' ? 'driving' : 'walking'}&key=${googleApiKey}`;
+        if (!useOsrmOnly && googleApiKey && googleApiKey.length > 20) {
+          url = `/api/directions?origin=${currentLocation.lat},${currentLocation.lng}&destination=${navigationTarget.location.lat},${navigationTarget.location.lng}&mode=${profile === 'driving' ? 'driving' : 'walking'}`;
           isGoogle = true;
         } else {
           url = `https://router.project-osrm.org/route/v1/${profile}/${currentLocation.lng},${currentLocation.lat};${navigationTarget.location.lng},${navigationTarget.location.lat}?steps=true&geometries=geojson&overview=full&continue_straight=true&radiuses=1000;1000`;
@@ -552,7 +553,62 @@ export const MapComponent: React.FC<MapComponentProps> = ({
           setNavSteps(steps);
           setCurrentStepIndex(0);
           lastRoutingLocation.current = currentLocation;
+          setRoutingError(null);
 
+        } else if (isGoogle && data.status !== "OK") {
+          // Fallback to OSRM if Google fails (e.g. Billing not enabled, Request Denied)
+          console.warn(`Google Directions failed with status: ${data.status}. Falling back to OSRM.`);
+          
+          // If it's a billing error or denied, we switch to OSRM for the rest of the session
+          if (data.status === "REQUEST_DENIED" || data.status === "OVER_QUERY_LIMIT") {
+            setUseOsrmOnly(true);
+            console.info("Switching to OpenStreetMap routing for the remainder of the session due to Google API limitations.");
+          }
+
+          const osrmUrl = `https://router.project-osrm.org/route/v1/${profile}/${currentLocation.lng},${currentLocation.lat};${navigationTarget.location.lng},${navigationTarget.location.lat}?steps=true&geometries=geojson&overview=full&continue_straight=true&radiuses=1000;1000`;
+          
+          try {
+            const osrmResponse = await fetch(osrmUrl, { signal: controller.signal });
+            if (osrmResponse.ok) {
+              const osrmData = await osrmResponse.json();
+              if (osrmData.routes && osrmData.routes[0]) {
+                const route = osrmData.routes[0];
+                const coords = route.geometry.coordinates.map((c: any) => [c[1], c[0]]);
+                
+                if (roadNavLineRef.current) roadNavLineRef.current.remove();
+                
+                if (leafletMap.current) {
+                  roadNavLineRef.current = L.polyline(coords, { color: '#4f46e5', weight: 5, opacity: 0.9 }).addTo(leafletMap.current);
+                  
+                  if (lastFitTargetId.current !== navigationTarget.id) {
+                      leafletMap.current.fitBounds(roadNavLineRef.current.getBounds(), { 
+                          padding: [50, 50],
+                          animate: true,
+                          duration: 1.2
+                      });
+                      lastFitTargetId.current = navigationTarget.id;
+                      setIsFollowing(false);
+                  }
+                }
+                
+                const steps = route.legs[0].steps.map((s: any) => ({
+                  instruction: s.maneuver.instruction,
+                  modifier: s.maneuver.modifier || 'straight',
+                  distance: s.distance,
+                  location: [s.maneuver.location[1], s.maneuver.location[0]]
+                }));
+                setNavSteps(steps);
+                setCurrentStepIndex(0);
+                lastRoutingLocation.current = currentLocation;
+                setRoutingError(null);
+                return;
+              }
+            }
+          } catch (osrmErr) {
+            console.error("OSRM fallback failed:", osrmErr);
+          }
+          
+          setRoutingError(data.status === "REQUEST_DENIED" ? "Google Billing/API Error. Try again later." : `Routing Error: ${data.status}`);
         } else if (!isGoogle && data.routes && data.routes[0]) {
           const route = data.routes[0];
           const coords = route.geometry.coordinates.map((c: any) => [c[1], c[0]]);
@@ -719,17 +775,10 @@ export const MapComponent: React.FC<MapComponentProps> = ({
               height="100%"
               frameBorder="0"
               style={{ border: 0 }}
-              src={`https://maps.google.com/maps?f=d&saddr=${initialNavLocation?.lat || currentLocation?.lat},${initialNavLocation?.lng || currentLocation?.lng}&daddr=${navigationTarget.location.lat},${navigationTarget.location.lng}&hl=en&ie=UTF8&t=m&z=15&iwloc=B&output=embed`}
+              src={`https://www.google.com/maps/embed/v1/directions?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&origin=${initialNavLocation?.lat || currentLocation?.lat},${initialNavLocation?.lng || currentLocation?.lng}&destination=${navigationTarget.location.lat},${navigationTarget.location.lng}&mode=driving`}
               allowFullScreen
               title="Google Maps Navigation"
             ></iframe>
-            
-            {/* Helpful Overlay for first-time users */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-              <div className="bg-slate-900/80 backdrop-blur-md text-white px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest shadow-2xl border border-white/10">
-                Use two fingers to move map
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -760,7 +809,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
               className="p-1.5 hover:bg-white/10 rounded-lg shrink-0 transition-colors"
               title="Open in Google Maps App"
             >
-              <img src="https://www.google.com/images/branding/product/ico/maps15_24dp.png" className="w-4 h-4" alt="G" />
+              <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=64" className="w-4 h-4" alt="G" />
             </button>
             <button onClick={onStopNavigation} className="p-1.5 hover:bg-white/10 rounded-lg shrink-0 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
