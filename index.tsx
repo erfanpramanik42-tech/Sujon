@@ -1,32 +1,14 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './index.css';
 
-const loadScript = (src: string, integrity?: string): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = src;
-    if (integrity) {
-      script.integrity = integrity;
-      script.crossOrigin = "";
-    }
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-    const target = document.head || document.body || document.documentElement;
-    target.appendChild(script);
-  });
-};
+import 'leaflet';
+import 'leaflet-rotate';
+import 'leaflet.markercluster';
 
 const init = async () => {
   try {
-    // Sequentially load Leaflet then the Rotation plugin
-    // Check if scripts are already available (offline support)
-    if (!(window as any).L) {
-      await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=");
-      await loadScript("https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js");
-      await loadScript("https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js");
-    }
-
     const rootElement = document.getElementById('root');
     if (!rootElement) {
       throw new Error("Could not find root element to mount to");
