@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import * as L from 'leaflet';
 import { Navigation } from 'lucide-react';
 import { Shop, GeoLocation, SalesRoute, Area, Place } from '../types';
 import { calculateDistance } from '../services/locationService';
@@ -196,7 +197,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!mapRef.current) return;
     // @ts-ignore
-    const L = window.L;
+    
     if (!L) return;
 
     if (!leafletMap.current) {
@@ -287,7 +288,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!leafletMap.current) return;
     // @ts-ignore
-    const L = window.L;
+    
     
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
@@ -340,7 +341,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!leafletMap.current || !currentLocation) return;
     // @ts-ignore
-    const L = window.L;
+    
 
     if (!userMarkerRef.current) {
       userMarkerRef.current = L.marker([currentLocation.lat, currentLocation.lng], {
@@ -382,7 +383,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!leafletMap.current) return;
     // @ts-ignore
-    const L = window.L;
+    
 
     if (!playbackLocation) {
       if (playbackMarkerRef.current) {
@@ -420,7 +421,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       return;
     }
     // @ts-ignore
-    const L = window.L;
+    
 
     const isHistoryView = !!activeRoute.endTime;
 
@@ -522,7 +523,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         if (!leafletMap.current || !navigationTarget) return;
 
         // @ts-ignore
-        const L = window.L;
+        
 
         if (isGoogle && data.status === "OK") {
           const route = data.routes[0];

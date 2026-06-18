@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as L from 'leaflet';
 import { GeoLocation } from '../types';
 
 // --- Sub-Component: Location Picker Map ---
@@ -18,7 +19,7 @@ export const LocationPickerMap = ({
   useEffect(() => {
     if (!containerRef.current) return;
     // @ts-ignore
-    const L = window.L;
+    
     if (!L) return;
 
     mapInstance.current = L.map(containerRef.current, {
@@ -131,8 +132,8 @@ export const LocationPickerMap = ({
   }, [initialLocation.lat, initialLocation.lng]);
 
   return (
-    <div className="relative group">
-      <div ref={containerRef} className="h-48 w-full rounded-xl border border-slate-200 shadow-inner overflow-hidden" />
+    <div className="relative group h-48 w-full">
+      <div ref={containerRef} className="absolute inset-0 rounded-xl border border-slate-200 shadow-inner overflow-hidden z-[1]" />
       <div className="absolute top-2 left-2 z-[1000] flex gap-1">
         <button 
           type="button"
@@ -162,7 +163,7 @@ export const MiniMap = ({ location, label }: { location: GeoLocation; label?: st
   useEffect(() => {
     if (!containerRef.current) return;
     // @ts-ignore
-    const L = window.L;
+    
     if (!L) return;
     
     mapInstance.current = L.map(containerRef.current, {
@@ -229,12 +230,12 @@ export const MiniMap = ({ location, label }: { location: GeoLocation; label?: st
   };
 
   return (
-    <div className="relative">
-      <div ref={containerRef} className="h-32 w-full rounded-xl border border-slate-200 mt-4 shadow-inner" />
+    <div className="relative h-32 w-full mt-4">
+      <div ref={containerRef} className="absolute inset-0 rounded-xl border border-slate-200 shadow-inner z-[1]" />
       <button 
         type="button" 
         onClick={toggleMapType}
-        className={`absolute top-6 left-2 z-[1000] px-2 py-1 rounded-md text-[8px] font-black uppercase shadow-sm border transition-colors ${mapType === 'satellite' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/90 text-slate-600 border-slate-200'}`}
+        className={`absolute top-2 left-2 z-[1000] px-2 py-1 rounded-md text-[8px] font-black uppercase shadow-sm border transition-colors ${mapType === 'satellite' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/90 text-slate-600 border-slate-200'}`}
       >
         {mapType === 'street' ? 'Satellite' : 'Street'}
       </button>

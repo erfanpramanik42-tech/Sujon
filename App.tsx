@@ -10,8 +10,10 @@ import { registerPlugin } from '@capacitor/core';
 import { Search, Map, Plus, Pencil, Settings2, MapPin, DollarSign, Users, ChevronRight, Play, Pause, Navigation, Phone, Trash2, Download, Upload, Database, RefreshCw } from 'lucide-react';
 
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
+import { NotificationService } from './services/NotificationService';
 import { AppView, Shop, Area, SalesRoute, GeoLocation, StopPoint, Visit, Product, Order, OrderItem, Dealer, ReplacementItem, Payment, Target, Expense, UserProfile, NotificationPreferences, Place, CompetitorTrack } from './types';
 import { INITIAL_AREAS, INITIAL_SHOPS, INITIAL_PRODUCTS, TRANSLATIONS, DEMO_ROUTES, WEEKDAYS } from './constants';
+import { db } from './services/DatabaseService';
 import { DashboardView } from './components/DashboardView';
 import { ShopsView } from './components/ShopsView';
 import { CompetitorsView } from './components/CompetitorsView';
@@ -142,131 +144,221 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const [shops, setShops] = useState<Shop[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_shops');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : INITIAL_SHOPS;
+  
+  useEffect(() => {
+    const loadDb = async () => {
+      try {
+        const _shops = await db.shops.toArray();
+        if (_shops.length > 0) {
+          setShops(_shops);
+        } else {
+          const saved = localStorage.getItem('fieldpro_shops');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setShops(parsed);
+                await db.shops.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _places = await db.places.toArray();
+        if (_places.length > 0) {
+          setPlaces(_places);
+        } else {
+          const saved = localStorage.getItem('fieldpro_places');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setPlaces(parsed);
+                await db.places.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _areas = await db.areas.toArray();
+        if (_areas.length > 0) {
+          setAreas(_areas);
+        } else {
+          const saved = localStorage.getItem('fieldpro_areas');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setAreas(parsed);
+                await db.areas.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _routes = await db.routes.toArray();
+        if (_routes.length > 0) {
+          setRoutes(_routes);
+        } else {
+          const saved = localStorage.getItem('fieldpro_routes');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setRoutes(parsed);
+                await db.routes.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _visits = await db.visits.toArray();
+        if (_visits.length > 0) {
+          setVisits(_visits);
+        } else {
+          const saved = localStorage.getItem('fieldpro_visits');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setVisits(parsed);
+                await db.visits.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _products = await db.products.toArray();
+        if (_products.length > 0) {
+          setProducts(_products);
+        } else {
+          const saved = localStorage.getItem('fieldpro_products');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setProducts(parsed);
+                await db.products.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _orders = await db.orders.toArray();
+        if (_orders.length > 0) {
+          setOrders(_orders);
+        } else {
+          const saved = localStorage.getItem('fieldpro_orders');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setOrders(parsed);
+                await db.orders.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _competitorTracks = await db.competitorTracks.toArray();
+        if (_competitorTracks.length > 0) {
+          setCompetitorTracks(_competitorTracks);
+        } else {
+          const saved = localStorage.getItem('fieldpro_competitor_tracks');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setCompetitorTracks(parsed);
+                await db.competitorTracks.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _dealers = await db.dealers.toArray();
+        if (_dealers.length > 0) {
+          setDealers(_dealers);
+        } else {
+          const saved = localStorage.getItem('fieldpro_dealers');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setDealers(parsed);
+                await db.dealers.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _payments = await db.payments.toArray();
+        if (_payments.length > 0) {
+          setPayments(_payments);
+        } else {
+          const saved = localStorage.getItem('fieldpro_payments');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setPayments(parsed);
+                await db.payments.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _expenses = await db.expenses.toArray();
+        if (_expenses.length > 0) {
+          setExpenses(_expenses);
+        } else {
+          const saved = localStorage.getItem('fieldpro_expenses');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setExpenses(parsed);
+                await db.expenses.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+        const _targets = await db.targets.toArray();
+        if (_targets.length > 0) {
+          setTargets(_targets);
+        } else {
+          const saved = localStorage.getItem('fieldpro_targets');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setTargets(parsed);
+                await db.targets.bulkPut(parsed);
+              }
+            } catch(e) {}
+          }
+        }
+      } catch (e) {
+        console.error('Error loading dexie db:', e);
       }
-    } catch (e) {
-      console.error("Error loading shops:", e);
-    }
-    return INITIAL_SHOPS;
-  });
-  const [places, setPlaces] = useState<Place[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_places');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading places:", e);
-    }
-    return [];
-  });
+    };
+    loadDb();
+  }, []);
+
+  const [shops, setShops] = useState<Shop[]>(INITIAL_SHOPS);
+  const [places, setPlaces] = useState<Place[]>([]);
   useEffect(() => {
     try {
-      localStorage.setItem('fieldpro_places', JSON.stringify(places));
     } catch (e) {
       console.warn("Failed to save places to localStorage:", e);
     }
   }, [places]);
 
-  const [areas, setAreas] = useState<Area[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_areas');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : INITIAL_AREAS;
-      }
-    } catch (e) {
-      console.error("Error loading areas:", e);
-    }
-    return INITIAL_AREAS;
-  });
-  const [routes, setRoutes] = useState<SalesRoute[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_routes');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : DEMO_ROUTES;
-      }
-    } catch (e) {
-      console.error("Error loading routes:", e);
-    }
-    return DEMO_ROUTES;
-  });
-  const [visits, setVisits] = useState<Visit[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_visits');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading visits:", e);
-    }
-    return [];
-  });
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_products');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : INITIAL_PRODUCTS;
-      }
-    } catch (e) {
-      console.error("Error loading products:", e);
-    }
-    return INITIAL_PRODUCTS;
-  });
-  const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_orders');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading orders:", e);
-    }
-    return [];
-  });
-  const [competitorTracks, setCompetitorTracks] = useState<CompetitorTrack[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_competitor_tracks');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading competitor tracks:", e);
-    }
-    return [];
-  });
+  const [areas, setAreas] = useState<Area[]>(INITIAL_AREAS);
+  const [routes, setRoutes] = useState<SalesRoute[]>(DEMO_ROUTES);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [competitorTracks, setCompetitorTracks] = useState<CompetitorTrack[]>([]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('fieldpro_competitor_tracks', JSON.stringify(competitorTracks));
     } catch (e) {
       console.warn("Failed to save competitor tracks to localStorage:", e);
     }
   }, [competitorTracks]);
 
-  const [dealers, setDealers] = useState<Dealer[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_dealers');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading dealers:", e);
-    }
-    return [];
-  });
+  const [dealers, setDealers] = useState<Dealer[]>([]);
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
     const saved = localStorage.getItem('fieldpro_range');
@@ -541,6 +633,10 @@ const App: React.FC = () => {
               message: <><span className="font-black underline decoration-white/20">{shop.name}</span>{` (${shop.ownerName}) ${t('within100m')}`}</>,
               type: 'error'
             });
+            NotificationService.showNotification({
+              title: 'Nearby Shop Alert',
+              body: `${shop.name} (${shop.ownerName}) is nearby!`
+            });
             alertedShopsRef.current.add(shop.id);
           }
         } else if (dist > 100) {
@@ -601,6 +697,10 @@ const App: React.FC = () => {
            title: t('success'),
            message: `You have arrived at ${navigationTargetRef.current.name}`,
            type: 'success'
+         });
+         NotificationService.showNotification({
+           title: 'Destination Reached',
+           body: `You have arrived at ${navigationTargetRef.current.name}`
          });
       }
     }
@@ -696,25 +796,13 @@ const App: React.FC = () => {
   const [showReplacementModal, setShowReplacementModal] = useState(false);
   const [tempReplacement, setTempReplacement] = useState<Partial<ReplacementItem>>({});
 
-  const [payments, setPayments] = useState<Payment[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_payments');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading payments:", e);
-    }
-    return [];
-  });
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [tempPayment, setTempPayment] = useState<Partial<Payment>>({});
 
   useEffect(() => {
     try {
-      localStorage.setItem('fieldpro_payments', JSON.stringify(payments));
     } catch (e) {
       console.warn("Failed to save payments to localStorage:", e);
     }
@@ -731,24 +819,12 @@ const App: React.FC = () => {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showSmartRoute, setShowSmartRoute] = useState(false);
   const [showTargetVsAchievement, setShowTargetVsAchievement] = useState(false);
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_expenses');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading expenses:", e);
-    }
-    return [];
-  });
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showExpensesModal, setShowExpensesModal] = useState(false);
   const [tempExpense, setTempExpense] = useState<Partial<Expense>>({});
 
   useEffect(() => {
     try {
-      localStorage.setItem('fieldpro_expenses', JSON.stringify(expenses));
     } catch (e) {
       console.warn("Failed to save expenses to localStorage:", e);
     }
@@ -772,24 +848,12 @@ const App: React.FC = () => {
     setExpenses(prev => prev.filter(e => e.id !== id));
   };
 
-  const [targets, setTargets] = useState<Target[]>(() => {
-    try {
-      const saved = localStorage.getItem('fieldpro_targets');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error("Error loading targets:", e);
-    }
-    return [];
-  });
+  const [targets, setTargets] = useState<Target[]>([]);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Partial<Target> | null>(null);
 
   useEffect(() => {
     try {
-      localStorage.setItem('fieldpro_targets', JSON.stringify(targets));
     } catch (e) {
       console.warn("Failed to save targets to localStorage:", e);
     }
@@ -1020,9 +1084,23 @@ const App: React.FC = () => {
     setAlertInfo({ show: true, title: 'Success', message: 'Demo data cleared successfully', type: 'success' });
   };
 
-  const resetApp = () => {
+  const resetApp = async () => {
     if (window.confirm('Are you sure you want to reset the app? All your data will be permanently deleted.')) {
       localStorage.clear();
+      await Promise.all([
+        db.shops.clear(),
+        db.places.clear(),
+        db.areas.clear(),
+        db.routes.clear(),
+        db.visits.clear(),
+        db.products.clear(),
+        db.orders.clear(),
+        db.competitorTracks.clear(),
+        db.dealers.clear(),
+        db.payments.clear(),
+        db.expenses.clear(),
+        db.targets.clear()
+      ]);
       window.location.reload();
     }
   };
@@ -1314,14 +1392,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem('fieldpro_shops', JSON.stringify(shops));
-      localStorage.setItem('fieldpro_areas', JSON.stringify(areas));
-      localStorage.setItem('fieldpro_routes', JSON.stringify(routes));
-      localStorage.setItem('fieldpro_visits', JSON.stringify(visits));
-      localStorage.setItem('fieldpro_products', JSON.stringify(products));
-      localStorage.setItem('fieldpro_orders', JSON.stringify(orders));
-      localStorage.setItem('fieldpro_dealers', JSON.stringify(dealers));
-      localStorage.setItem('fieldpro_places', JSON.stringify(places));
       localStorage.setItem('fieldpro_range', String(detectionRange));
       localStorage.setItem('fieldpro_nearby_range', String(nearbyRange));
     } catch (e) {

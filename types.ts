@@ -48,6 +48,7 @@ export interface Shop {
 }
 
 export interface Visit {
+  id?: string;
   shopId: string;
   timestamp: number;
   date: string; // YYYY-MM-DD
