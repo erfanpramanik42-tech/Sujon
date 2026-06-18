@@ -145,13 +145,21 @@ const App: React.FC = () => {
   }, []);
 
   
+  const [isDbLoaded, setIsDbLoaded] = useState(false);
+
   useEffect(() => {
     const loadDb = async () => {
       try {
-        const _shops = await db.shops.toArray();
-        if (_shops.length > 0) {
-          setShops(_shops);
-        } else {
+        const [
+          _shops, _places, _areas, _routes, _visits, _products,
+          _orders, _competitorTracks, _dealers, _payments, _expenses, _targets
+        ] = await Promise.all([
+          db.shops.toArray(), db.places.toArray(), db.areas.toArray(), db.routes.toArray(), db.visits.toArray(), db.products.toArray(),
+          db.orders.toArray(), db.competitorTracks.toArray(), db.dealers.toArray(), db.payments.toArray(), db.expenses.toArray(), db.targets.toArray()
+        ]);
+
+        if (_shops.length > 0) setShops(_shops);
+        else {
           const saved = localStorage.getItem('fieldpro_shops');
           if (saved) {
             try {
@@ -163,10 +171,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _places = await db.places.toArray();
-        if (_places.length > 0) {
-          setPlaces(_places);
-        } else {
+
+        if (_places.length > 0) setPlaces(_places);
+        else {
           const saved = localStorage.getItem('fieldpro_places');
           if (saved) {
             try {
@@ -178,10 +185,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _areas = await db.areas.toArray();
-        if (_areas.length > 0) {
-          setAreas(_areas);
-        } else {
+
+        if (_areas.length > 0) setAreas(_areas);
+        else {
           const saved = localStorage.getItem('fieldpro_areas');
           if (saved) {
             try {
@@ -193,10 +199,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _routes = await db.routes.toArray();
-        if (_routes.length > 0) {
-          setRoutes(_routes);
-        } else {
+
+        if (_routes.length > 0) setRoutes(_routes);
+        else {
           const saved = localStorage.getItem('fieldpro_routes');
           if (saved) {
             try {
@@ -208,10 +213,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _visits = await db.visits.toArray();
-        if (_visits.length > 0) {
-          setVisits(_visits);
-        } else {
+
+        if (_visits.length > 0) setVisits(_visits);
+        else {
           const saved = localStorage.getItem('fieldpro_visits');
           if (saved) {
             try {
@@ -223,10 +227,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _products = await db.products.toArray();
-        if (_products.length > 0) {
-          setProducts(_products);
-        } else {
+
+        if (_products.length > 0) setProducts(_products);
+        else {
           const saved = localStorage.getItem('fieldpro_products');
           if (saved) {
             try {
@@ -238,10 +241,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _orders = await db.orders.toArray();
-        if (_orders.length > 0) {
-          setOrders(_orders);
-        } else {
+
+        if (_orders.length > 0) setOrders(_orders);
+        else {
           const saved = localStorage.getItem('fieldpro_orders');
           if (saved) {
             try {
@@ -253,10 +255,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _competitorTracks = await db.competitorTracks.toArray();
-        if (_competitorTracks.length > 0) {
-          setCompetitorTracks(_competitorTracks);
-        } else {
+
+        if (_competitorTracks.length > 0) setCompetitorTracks(_competitorTracks);
+        else {
           const saved = localStorage.getItem('fieldpro_competitor_tracks');
           if (saved) {
             try {
@@ -268,10 +269,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _dealers = await db.dealers.toArray();
-        if (_dealers.length > 0) {
-          setDealers(_dealers);
-        } else {
+
+        if (_dealers.length > 0) setDealers(_dealers);
+        else {
           const saved = localStorage.getItem('fieldpro_dealers');
           if (saved) {
             try {
@@ -283,10 +283,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _payments = await db.payments.toArray();
-        if (_payments.length > 0) {
-          setPayments(_payments);
-        } else {
+
+        if (_payments.length > 0) setPayments(_payments);
+        else {
           const saved = localStorage.getItem('fieldpro_payments');
           if (saved) {
             try {
@@ -298,10 +297,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _expenses = await db.expenses.toArray();
-        if (_expenses.length > 0) {
-          setExpenses(_expenses);
-        } else {
+
+        if (_expenses.length > 0) setExpenses(_expenses);
+        else {
           const saved = localStorage.getItem('fieldpro_expenses');
           if (saved) {
             try {
@@ -313,10 +311,9 @@ const App: React.FC = () => {
             } catch(e) {}
           }
         }
-        const _targets = await db.targets.toArray();
-        if (_targets.length > 0) {
-          setTargets(_targets);
-        } else {
+
+        if (_targets.length > 0) setTargets(_targets);
+        else {
           const saved = localStorage.getItem('fieldpro_targets');
           if (saved) {
             try {
@@ -330,6 +327,8 @@ const App: React.FC = () => {
         }
       } catch (e) {
         console.error('Error loading dexie db:', e);
+      } finally {
+        setIsDbLoaded(true);
       }
     };
     loadDb();
@@ -352,13 +351,28 @@ const App: React.FC = () => {
   const [competitorTracks, setCompetitorTracks] = useState<CompetitorTrack[]>([]);
 
   useEffect(() => {
-    try {
-    } catch (e) {
-      console.warn("Failed to save competitor tracks to localStorage:", e);
-    }
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.competitorTracks.clear();
+        if (competitorTracks.length > 0) await db.competitorTracks.bulkPut(competitorTracks);
+      } catch(e) { console.error(e); }
+    };
+    saveToDb();
   }, [competitorTracks]);
 
   const [dealers, setDealers] = useState<Dealer[]>([]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.dealers.clear();
+        if (dealers.length > 0) await db.dealers.bulkPut(dealers);
+      } catch(e) { console.error(e); }
+    };
+    saveToDb();
+  }, [dealers]);
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
     const saved = localStorage.getItem('fieldpro_range');
@@ -802,10 +816,14 @@ const App: React.FC = () => {
   const [tempPayment, setTempPayment] = useState<Partial<Payment>>({});
 
   useEffect(() => {
-    try {
-    } catch (e) {
-      console.warn("Failed to save payments to localStorage:", e);
-    }
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.payments.clear();
+        if (payments.length > 0) await db.payments.bulkPut(payments);
+      } catch(e) { console.error(e); }
+    };
+    saveToDb();
   }, [payments]);
 
   const getShopBalance = useCallback((shopId: string) => {
@@ -824,10 +842,14 @@ const App: React.FC = () => {
   const [tempExpense, setTempExpense] = useState<Partial<Expense>>({});
 
   useEffect(() => {
-    try {
-    } catch (e) {
-      console.warn("Failed to save expenses to localStorage:", e);
-    }
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.expenses.clear();
+        if (expenses.length > 0) await db.expenses.bulkPut(expenses);
+      } catch(e) { console.error(e); }
+    };
+    saveToDb();
   }, [expenses]);
 
   const addExpense = () => {
@@ -853,10 +875,14 @@ const App: React.FC = () => {
   const [editingTarget, setEditingTarget] = useState<Partial<Target> | null>(null);
 
   useEffect(() => {
-    try {
-    } catch (e) {
-      console.warn("Failed to save targets to localStorage:", e);
-    }
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.targets.clear();
+        if (targets.length > 0) await db.targets.bulkPut(targets);
+      } catch(e) { console.error(e); }
+    };
+    saveToDb();
   }, [targets]);
 
   const getAchievement = useCallback((type: 'Sales' | 'Visits', period: 'Daily' | 'Monthly') => {
@@ -1391,13 +1417,101 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.shops.clear();
+        if (shops.length > 0) await db.shops.bulkPut(shops);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [shops, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.areas.clear();
+        if (areas.length > 0) await db.areas.bulkPut(areas);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [areas, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.routes.clear();
+        if (routes.length > 0) await db.routes.bulkPut(routes);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [routes, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.visits.clear();
+        if (visits.length > 0) await db.visits.bulkPut(visits);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [visits, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.products.clear();
+        if (products.length > 0) await db.products.bulkPut(products);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [products, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.orders.clear();
+        if (orders.length > 0) await db.orders.bulkPut(orders);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [orders, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.dealers.clear();
+        if (dealers.length > 0) await db.dealers.bulkPut(dealers);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [dealers, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveToDb = async () => {
+      try {
+        await db.places.clear();
+        if (places.length > 0) await db.places.bulkPut(places);
+      } catch (err) { console.error(err); }
+    };
+    saveToDb();
+  }, [places, isDbLoaded]);
+
+  useEffect(() => {
     try {
       localStorage.setItem('fieldpro_range', String(detectionRange));
       localStorage.setItem('fieldpro_nearby_range', String(nearbyRange));
     } catch (e) {
       console.warn("Failed to save data to localStorage:", e);
     }
-  }, [shops, areas, routes, visits, products, orders, dealers, places, detectionRange, nearbyRange]);
+  }, [detectionRange, nearbyRange]);
 
   useEffect(() => {
     // Initial location fetch
@@ -3543,6 +3657,9 @@ const App: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('area')}</label><select required className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.areaId || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, areaId: e.target.value }))}><option value="">{t('selectArea')}</option>{activeAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('subArea')}</label><input type="text" placeholder="e.g. Block C" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.subArea || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, subArea: e.target.value }))} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Visit Day / ভিজিটের দিন</label><select className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.visitDay || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, visitDay: e.target.value }))}><option value="">Any Day</option>{WEEKDAYS.map(day => <option key={day} value={day}>{day}</option>)}</select></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase mb-1">{t('birthday')}</label><input type="date" className="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingShop?.birthday || ''} onFocus={handleInputFocus} onChange={e => setEditingShop(prev => ({ ...prev, birthday: e.target.value }))} /></div>

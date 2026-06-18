@@ -1,7 +1,7 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shop, Area, Payment } from '../types';
-import { Navigation, Plus, Trash2, Camera, Image, ArrowLeft, X } from 'lucide-react';
+import { Navigation, Plus, Trash2, Camera, Image, ArrowLeft, X, FileText, Check, Edit3 } from 'lucide-react';
 import { MiniMap } from './MapUtils';
 
 interface ShopDetailModalProps {
@@ -48,6 +48,31 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({
   const [showAddGallery, setShowAddGallery] = React.useState(false);
   const [showGalleryPage, setShowGalleryPage] = React.useState(false);
   const [galleryForm, setGalleryForm] = React.useState({ name: '', role: '', photo: '' });
+  
+  const [showNotesPage, setShowNotesPage] = React.useState(false);
+  const [newNoteText, setNewNoteText] = React.useState('');
+
+  const handleAddNote = () => {
+    if (!newNoteText.trim()) return;
+    const newNote = {
+      id: `note-${Date.now()}`,
+      text: newNoteText.trim(),
+      date: Date.now()
+    };
+    const updatedNotes = [...(viewingShop.notes || []), newNote];
+    const updatedShop = { ...viewingShop, notes: updatedNotes };
+    updateShop(updatedShop);
+    setViewingShop(updatedShop);
+    setNewNoteText('');
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    if (!window.confirm(lang === 'en' ? 'Delete this note?' : 'এই নোট মুছতে চান?')) return;
+    const updatedNotes = (viewingShop.notes || []).filter(n => n.id !== noteId);
+    const updatedShop = { ...viewingShop, notes: updatedNotes };
+    updateShop(updatedShop);
+    setViewingShop(updatedShop);
+  };
 
   const handleAddGalleryItem = () => {
     if (!galleryForm.photo || !galleryForm.name || !galleryForm.role) return;
@@ -95,30 +120,66 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({
         <button onClick={() => setViewingShop(null)} className="absolute top-3 right-3 z-20 bg-black/20 backdrop-blur-md text-white p-1.5 rounded-full transition-all active:scale-90"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
         <div className="h-48 w-full bg-slate-100 relative overflow-hidden cursor-pointer" onClick={() => viewingShop.photo && setViewingFullPhoto(viewingShop.photo)}>
           {viewingShop.photo ? <img src={viewingShop.photo} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-200"><svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm7 0a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V9H9a1 1 0 110-2h1V6a1 1 0 011-1z" clipRule="evenodd" /></svg></div>}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none"></div>
-          <div className="absolute bottom-12 left-6 flex items-center gap-1.5 pointer-events-none"><span className="bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full border border-indigo-400/50 uppercase tracking-widest shadow-lg">{activeAreas.find(a => a.id === viewingShop.areaId)?.name}</span>{viewingShop.subArea && <span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">{viewingShop.subArea}</span>}<span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-full border border-white/30 uppercase tracking-widest">Verified</span></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent pointer-events-none"></div>
+          <div className="absolute bottom-12 left-5 flex flex-wrap items-center gap-1.5 pointer-events-none pr-4">
+            <span className="bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded-lg border border-indigo-400/50 uppercase tracking-widest shadow-lg">{activeAreas.find(a => a.id === viewingShop.areaId)?.name}</span>
+            {viewingShop.subArea && <span className="bg-white/20 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-lg border border-white/30 uppercase tracking-widest leading-none">{viewingShop.subArea}</span>}
+            {viewingShop.visitDay && <span className="bg-emerald-500/90 backdrop-blur-md text-white text-[8px] font-bold px-2 py-0.5 rounded-lg border border-emerald-400/50 tracking-widest leading-none shadow-sm">{viewingShop.visitDay}</span>}
+          </div>
         </div>
-        <div className="bg-white px-6 pb-8 pt-12 -mt-10 rounded-t-[2.5rem] relative z-10 shadow-[0_-25px_50px_-12px_rgba(0,0,0,0.3)] text-left">
+        <div className="bg-white px-5 pb-6 pt-6 -mt-8 rounded-t-[2rem] relative z-20 shadow-[0_-15px_40px_-5px_rgba(0,0,0,0.3)] text-left">
           <div className="flex justify-between items-start mb-4">
             <div className="flex-1 min-w-0 pr-3">
-              <div className="flex items-center gap-2"><h2 className="text-2xl font-black text-slate-900 leading-tight mb-0.5">{viewingShop.name}</h2>{isVisitedToday(viewingShop.id) && <span className="bg-emerald-500 text-white rounded-full p-1 shadow-lg animate-scaleUp"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></span>}</div>
-              <div className="flex items-center gap-1">
-                <div className={`w-1 h-1 rounded-full animate-pulse ${viewingShop.status === 'Inactive' ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-                <span className={`text-[8px] font-black uppercase tracking-widest ${viewingShop.status === 'Inactive' ? 'text-rose-500' : 'text-slate-400'}`}>
-                  {viewingShop.status === 'Inactive' ? t('inactivePartner') : t('activePartner')}
+              <div className="flex items-center gap-2 mb-0.5">
+                <h2 className="text-xl font-black text-slate-800 leading-tight">{viewingShop.name}</h2>
+                {isVisitedToday(viewingShop.id) && (
+                  <span className="bg-emerald-100 text-emerald-600 rounded-full p-1 shadow-sm border border-emerald-200">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full shadow-inner ${viewingShop.status === 'Inactive' ? 'bg-rose-500 shadow-rose-200' : 'bg-emerald-500 shadow-emerald-200 animate-pulse'}`}></div>
+                <span className={`text-[8px] font-black uppercase tracking-widest ${viewingShop.status === 'Inactive' ? 'text-rose-500' : 'text-emerald-600'}`}>
+                  {viewingShop.status === 'Inactive' ? t('inactivePartner') : 'Active Partner'}
                 </span>
+                <span className="text-slate-300 mx-1 text-xs">•</span>
+                <span className="text-slate-500 font-bold text-[9px] uppercase tracking-wider truncate max-w-[120px]">{viewingShop.ownerName}</span>
               </div>
             </div>
-            <a href={`tel:${viewingShop.phone}`} className="bg-emerald-500 text-white p-3.5 rounded-xl shadow-lg shadow-emerald-200 transition-all active:scale-90 hover:bg-emerald-600"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg></a>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={() => setShowNotesPage(true)} className="bg-amber-50 text-amber-600 p-2.5 rounded-xl border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-all active:scale-95 flex items-center justify-center shrink-0 shadow-sm relative">
+                <FileText className="w-4 h-4" />
+                {(viewingShop.notes?.length || 0) > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                    {viewingShop.notes?.length}
+                  </span>
+                )}
+              </button>
+              <a href={`tel:${viewingShop.phone}`} className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-all active:scale-95 flex items-center justify-center shrink-0 shadow-sm">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
+              </a>
+            </div>
           </div>
-          <div className="space-y-4">
-             <div className="grid grid-cols-2 gap-3">
-               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('ownerName')}</p><p className="text-sm font-bold text-slate-700 leading-tight truncate">{viewingShop.ownerName}</p></div>
-               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('dues')}</p><p className={`text-sm font-black leading-tight truncate ${getShopBalance(viewingShop.id) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>৳{getShopBalance(viewingShop.id)}</p></div>
+          <div className="space-y-3 pt-1">
+             <div className="grid grid-cols-2 gap-2">
+               <div className="bg-slate-50 p-2.5 rounded-[1.25rem] border border-slate-100 flex flex-col justify-center items-start shadow-sm relative overflow-hidden">
+                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-between w-full"><span>{t('dues')}</span> <button onClick={() => setShowPaymentHistory(true)} className="text-indigo-500 active:scale-90"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></button></p>
+                 <p className={`text-lg font-black leading-none truncate relative z-10 ${getShopBalance(viewingShop.id) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>৳{getShopBalance(viewingShop.id).toLocaleString()}</p>
+               </div>
+               
+               <button 
+                 onClick={() => { setTempPayment({ shopId: viewingShop.id, method: 'Cash' }); setShowPaymentModal(true); }}
+                 className="bg-indigo-50 hover:bg-indigo-100 p-2.5 rounded-[1.25rem] border border-indigo-100 shadow-sm flex flex-col justify-center items-start relative overflow-hidden active:scale-[0.98] transition-all text-left group"
+               >
+                 <svg className="w-4 h-4 text-indigo-400 mb-1 absolute right-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                 <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest mb-0.5 relative z-10">ACTION</p>
+                 <p className="text-xs font-black text-indigo-700 leading-tight relative z-10 mt-1">{t('collectPayment')}</p>
+               </button>
              </div>
 
              {(isSpecialDayNear(viewingShop.birthday) || isSpecialDayNear(viewingShop.anniversary)) && (
-               <div className="bg-amber-50/50 dark:bg-amber-900/10 p-3 rounded-2xl border border-amber-100 dark:border-amber-900/30 space-y-2">
+               <div className="bg-amber-50/50 dark:bg-amber-900/10 p-2.5 rounded-2xl border border-amber-100 dark:border-amber-900/30 space-y-2">
                   <h4 className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest px-1">{t('specialDays')}</h4>
                   <div className="grid grid-cols-2 gap-2">
                     {isSpecialDayNear(viewingShop.birthday) && (
@@ -140,82 +201,70 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({
              {/* Photo Gallery Section - Compact */}
              <button 
                onClick={() => setShowGalleryPage(true)}
-               className="w-full bg-indigo-50/50 p-4 rounded-[1.8rem] border border-indigo-100/50 flex items-center justify-between active:scale-[0.98] transition-all group"
+               className="w-full bg-slate-50 p-2.5 rounded-2xl border border-slate-100 flex items-center justify-between active:scale-[0.98] transition-all group mt-1"
              >
-               <div className="flex items-center gap-4">
-                 <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                   <Image className="w-6 h-6" />
+               <div className="flex items-center gap-3">
+                 <div className="w-9 h-9 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-all">
+                   <Image className="w-4 h-4" />
                  </div>
                  <div className="text-left">
-                   <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{lang === 'en' ? 'Photo Gallery' : 'ফটো গ্যালারি'}</p>
-                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
-                     {(viewingShop.gallery || []).length} {lang === 'en' ? 'Profiles Added' : 'টি প্রোফাইল যোগ করা হয়েছে'}
+                   <p className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{lang === 'en' ? 'Photo Gallery' : 'ফটো গ্যালারি'}</p>
+                   <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">
+                     {(viewingShop.gallery || []).length} {lang === 'en' ? 'Photos' : 'টি ফটো'}
                    </p>
                  </div>
                </div>
-               <div className="flex -space-x-3 pr-2">
+               <div className="flex -space-x-2 pr-1">
                  {(viewingShop.gallery || []).slice(0, 3).map((item, i) => (
-                   <div key={item.id} className="w-8 h-8 rounded-full border-2 border-white shadow-sm overflow-hidden" style={{ zIndex: 3-i }}>
+                   <div key={item.id} className="w-6 h-6 rounded-full border border-white shadow-sm overflow-hidden" style={{ zIndex: 3-i }}>
                      <img src={item.photo} className="w-full h-full object-cover" alt="" />
                    </div>
                  ))}
                  {(viewingShop.gallery || []).length > 3 && (
-                   <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white shadow-sm flex items-center justify-center text-[8px] font-black text-slate-500 z-0">
+                   <div className="w-6 h-6 rounded-full bg-slate-100 border border-white shadow-sm flex items-center justify-center text-[7px] font-black text-slate-500 z-0">
                      +{(viewingShop.gallery || []).length - 3}
                    </div>
                  )}
                  {(viewingShop.gallery || []).length === 0 && (
-                    <div className="w-8 h-8 rounded-full bg-white border-2 border-slate-100 flex items-center justify-center">
-                       <Plus className="w-4 h-4 text-slate-300" />
+                    <div className="w-6 h-6 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center">
+                       <Plus className="w-3 h-3 text-slate-300" />
                     </div>
                  )}
                </div>
              </button>
              
-             {/* Payment History Section */}
-             <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-               <div className="flex justify-between items-center px-1">
-                 <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t('paymentHistory')}</h4>
-                 <div className="flex gap-2">
-                   <button 
-                     onClick={() => setShowPaymentHistory(true)}
-                     className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-lg border border-indigo-100 active:scale-95 transition-all uppercase tracking-tighter flex items-center gap-1"
-                   >
-                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                     {t('viewHistory')}
-                   </button>
-                   <button 
-                     onClick={() => { setTempPayment({ shopId: viewingShop.id, method: 'Cash' }); setShowPaymentModal(true); }}
-                     className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-100 active:scale-95 transition-all uppercase tracking-tighter flex items-center gap-1"
-                   >
-                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                     {t('collectPayment')}
-                   </button>
-                 </div>
-               </div>
+             {/* Order and Visit Actions */}
+             <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => toggleVisit(viewingShop.id)} className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm active:scale-[0.98] border ${isVisitedToday(viewingShop.id) ? 'bg-emerald-500 border-emerald-600 text-white shadow-emerald-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  {isVisitedToday(viewingShop.id) ? <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg> {t('unmarkVisited')}</> : <><svg className="w-4 h-4 text-slate-400 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg> {t('markVisited')}</>}
+                </button>
+                <button onClick={() => { setOrderShop(viewingShop); setOrderTab('taking'); setShowOrderSystem(true); setViewingShop(null); }} className="flex flex-col items-center justify-center gap-1 py-2.5 bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white font-black text-[9px] uppercase tracking-widest rounded-2xl shadow-md shadow-indigo-200/50 active:scale-[0.98] transition-all hover:shadow-lg hover:shadow-indigo-300">
+                  <div className="relative"><Plus className="w-4 h-4" /></div> TAKE ORDER
+                </button>
              </div>
-             <div className="flex gap-2">
-               <button onClick={() => toggleVisit(viewingShop.id)} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border shadow-sm active:scale-95 ${isVisitedToday(viewingShop.id) ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-slate-900 border-slate-800 text-white'}`}>{isVisitedToday(viewingShop.id) ? <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg> {t('unmarkVisited')}</> : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg> {t('markVisited')}</>}</button>
-               <button onClick={() => { setOrderShop(viewingShop); setOrderTab('taking'); setShowOrderSystem(true); setViewingShop(null); }} className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-600 font-black text-[10px] uppercase rounded-xl shadow-sm active:scale-95 transition-all">Take Order</button>
+
+             <div className="rounded-2xl overflow-hidden border border-slate-200 h-28 relative mt-2 group">
+               <MiniMap location={viewingShop.location} label={viewingShop.name} />
+               <div className="absolute inset-0 bg-gradient-to-t from-slate-900/5 to-transparent pointer-events-none"></div>
              </div>
-             <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-inner h-32"><MiniMap location={viewingShop.location} label={viewingShop.name} /></div>
-          </div>
-          <div className="flex gap-3 mt-6">
-            <button onClick={() => startNavigation(viewingShop)} className="flex-[1.5] bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-indigo-700 text-[10px] uppercase tracking-widest">
-              <Navigation className="w-4 h-4" />
-              {t('internalMap')}
-            </button>
-            <button 
-              onClick={() => {
-                const url = `https://www.google.com/maps/dir/?api=1&destination=${viewingShop.location.lat},${viewingShop.location.lng}&travelmode=driving`;
-                window.open(url, '_blank');
-              }} 
-              className="flex-1 bg-white border-2 border-slate-100 text-slate-700 font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-slate-50 text-[10px] uppercase tracking-widest"
-            >
-              <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=64" className="w-4 h-4" alt="" />
-              {t('googleMaps')}
-            </button>
-          </div>
+
+             <div className="grid grid-cols-2 gap-2 mt-2">
+               <button onClick={() => startNavigation(viewingShop)} className="flex items-center justify-center gap-1.5 bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition-all active:scale-[0.98] hover:bg-slate-100 text-[9px] uppercase tracking-wider">
+                 <Navigation className="w-3.5 h-3.5 text-indigo-500" />
+                 {t('internalMap')}
+               </button>
+               <button 
+                 onClick={() => {
+                   const url = `https://www.google.com/maps/dir/?api=1&destination=${viewingShop.location.lat},${viewingShop.location.lng}&travelmode=driving`;
+                   window.open(url, '_blank');
+                 }} 
+                 className="flex items-center justify-center gap-1.5 bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition-all active:scale-[0.98] hover:bg-slate-100 text-[9px] uppercase tracking-wider"
+               >
+                 <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=64" className="w-3.5 h-3.5 drop-shadow-sm" alt="" />
+                 {t('googleMaps')}
+               </button>
+             </div>
+           </div>
         </div>
       </div>
 
@@ -273,6 +322,66 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showNotesPage && (
+        <div className="fixed inset-0 z-[550] bg-white animate-slideUp flex flex-col">
+          <div className="p-4 flex items-center gap-3 border-b border-slate-100">
+            <button 
+              onClick={() => setShowNotesPage(false)}
+              className="p-2 bg-slate-100 text-slate-600 rounded-xl"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-black text-slate-800">{lang === 'en' ? 'Shop Notes' : 'দোকান নোটসমূহ'}</h3>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="bg-slate-50 border border-slate-200 rounded-[1.5rem] p-4 flex flex-col gap-3 shadow-inner">
+              <textarea
+                value={newNoteText}
+                onChange={(e) => setNewNoteText(e.target.value)}
+                placeholder={lang === 'en' ? 'Write a new note...' : 'একটি নতুন নোট লিখুন...'}
+                className="w-full text-sm p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-300 min-h-[80px] resize-none bg-white font-medium"
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={!newNoteText.trim()}
+                className="py-3 px-6 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100 active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none self-end flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                {lang === 'en' ? 'Save Note' : 'নোট সংরক্ষণ করুন'}
+              </button>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              {(viewingShop.notes || []).length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center px-6 py-10 opacity-60">
+                  <div className="w-16 h-16 bg-slate-100 rounded-[1.5rem] flex items-center justify-center mb-4">
+                    <FileText className="w-8 h-8 text-slate-300" />
+                  </div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{lang === 'en' ? 'No notes yet' : 'কোনো নোট নেই'}</p>
+                </div>
+              ) : (
+                [...(viewingShop.notes || [])].sort((a, b) => b.date - a.date).map(note => (
+                  <div key={note.id} className="bg-white border border-slate-100 rounded-[1.5rem] p-4 shadow-sm relative group animate-scaleUp">
+                    <button 
+                      onClick={() => handleDeleteNote(note.id)}
+                      className="absolute top-3 right-3 text-slate-300 hover:text-rose-500 p-1.5 rounded-xl hover:bg-rose-50 active:scale-75 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 opacity-60"></div>
+                      {new Date(note.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'bn-BD', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <p className="text-sm font-medium text-slate-700 whitespace-pre-wrap leading-relaxed pr-8">{note.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

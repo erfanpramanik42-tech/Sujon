@@ -28,6 +28,12 @@ export interface GalleryItem {
   role: string; // e.g., 'Owner', 'Helper'
 }
 
+export interface ShopNote {
+  id: string;
+  text: string;
+  date: number;
+}
+
 export interface Shop {
   id: string;
   name: string;
@@ -41,10 +47,12 @@ export interface Shop {
   areaId: string;
   createdAt: number;
   isArchived?: boolean;
+  visitDay?: string; // Day of the week for visits
   birthday?: string; // YYYY-MM-DD
   anniversary?: string; // YYYY-MM-DD
   distance?: number; // meters (road distance if available)
   birdDistance?: number; // meters (crow-flies)
+  notes?: ShopNote[];
 }
 
 export interface Visit {

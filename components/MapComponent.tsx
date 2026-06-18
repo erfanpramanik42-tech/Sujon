@@ -605,8 +605,10 @@ export const MapComponent: React.FC<MapComponentProps> = ({
                 return;
               }
             }
-          } catch (osrmErr) {
-            console.error("OSRM fallback failed:", osrmErr);
+          } catch (osrmErr: any) {
+            if (osrmErr.name !== 'AbortError') {
+              console.error("OSRM fallback failed:", osrmErr);
+            }
           }
           
           setRoutingError(data.status === "REQUEST_DENIED" ? "Google Billing/API Error. Try again later." : `Routing Error: ${data.status}`);
