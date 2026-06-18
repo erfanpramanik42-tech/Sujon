@@ -1775,6 +1775,7 @@ const App: React.FC = () => {
       if (!confirmSave) return;
     }
     const finalShop: Shop = {
+      ...(editingShop as Shop),
       id: editingShop.id || generateId(),
       name: editingShop.name || '',
       ownerName: editingShop.ownerName || '',
@@ -1785,6 +1786,7 @@ const App: React.FC = () => {
       location: finalLocData, 
       createdAt: editingShop.createdAt || Date.now(),
       isArchived: false,
+      visitDay: editingShop.visitDay,
       birthday: editingShop.birthday,
       anniversary: editingShop.anniversary
     };

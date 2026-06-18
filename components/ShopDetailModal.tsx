@@ -164,7 +164,13 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({
           <div className="space-y-3 pt-1">
              <div className="grid grid-cols-2 gap-2">
                <div className="bg-slate-50 p-2.5 rounded-[1.25rem] border border-slate-100 flex flex-col justify-center items-start shadow-sm relative overflow-hidden">
-                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-between w-full"><span>{t('dues')}</span> <button onClick={() => setShowPaymentHistory(true)} className="text-indigo-500 active:scale-90"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></button></p>
+                 <div className="flex items-center justify-between w-full mb-1">
+                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{t('dues')}</p>
+                   <button onClick={() => setShowPaymentHistory(true)} className="flex items-center gap-1 bg-white border border-slate-200 px-1.5 py-0.5 rounded-md text-indigo-600 active:scale-90 shadow-sm">
+                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                     <span className="text-[8px] font-bold uppercase tracking-wider">{lang === 'en' ? 'History' : 'হিস্টোরি'}</span>
+                   </button>
+                 </div>
                  <p className={`text-lg font-black leading-none truncate relative z-10 ${getShopBalance(viewingShop.id) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>৳{getShopBalance(viewingShop.id).toLocaleString()}</p>
                </div>
                

@@ -178,7 +178,19 @@ export const MiniMap = ({ location, label }: { location: GeoLocation; label?: st
     layersRef.current.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
     layersRef.current.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
     
-    const marker = L.marker([location.lat, location.lng]).addTo(mapInstance.current);
+    const marker = L.marker([location.lat, location.lng], {
+      icon: L.divIcon({
+        className: 'custom-pin',
+        html: `<div class="pin-container">
+          <div class="pin-head"></div>
+          <div class="pin-point"></div>
+        </div>
+        <div class="pin-shadow"></div>`,
+        iconSize: [30, 42],
+        iconAnchor: [15, 42],
+        tooltipAnchor: [0, -42]
+      })
+    }).addTo(mapInstance.current);
     if (label) {
       marker.bindTooltip(label, { permanent: true, direction: 'top', className: 'minimal-label' }).openTooltip();
     }
@@ -239,6 +251,12 @@ export const MiniMap = ({ location, label }: { location: GeoLocation; label?: st
       >
         {mapType === 'street' ? 'Satellite' : 'Street'}
       </button>
+      <style>{`
+        .custom-pin { pointer-events: none; }
+        .pin-container { position: relative; width: 30px; height: 30px; display: flex; flex-direction: column; align-items: center; }
+        .pin-head { width: 14px; height: 14px; background: #6366f1; border: 2px solid white; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .pin-shadow { width: 6px; height: 2px; background: rgba(0,0,0,0.2); border-radius: 50%; margin-top: 2px; }
+      `}</style>
     </div>
   );
 };

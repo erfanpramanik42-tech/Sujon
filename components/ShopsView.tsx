@@ -53,10 +53,13 @@ export const ShopsView: React.FC<ShopsViewProps> = ({
 
   const displayedShops = React.useMemo(() => {
     if (groupBy === 'day' && selectedDay !== 'all') {
-      return filteredShopsList.filter(shop => shop.visitDay === selectedDay);
+      return filteredShopsList.filter(shop => {
+        const area = activeAreas.find(a => a.id === shop.areaId);
+        return shop.visitDay === selectedDay || (area && area.assignedDay === selectedDay);
+      });
     }
     return filteredShopsList;
-  }, [groupBy, selectedDay, filteredShopsList]);
+  }, [groupBy, selectedDay, filteredShopsList, activeAreas]);
 
   return (
     <div className="flex flex-col h-full gap-3 animate-fadeIn">
