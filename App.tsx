@@ -144,7 +144,24 @@ const App: React.FC = () => {
     }
   }, []);
 
-  
+  const useDbSync = (isDbLoaded: boolean, data: any[], store: any) => {
+    const isInitialLoad = useRef(true);
+    useEffect(() => {
+      if (!isDbLoaded) return;
+      if (isInitialLoad.current) {
+        isInitialLoad.current = false;
+        return;
+      }
+      const saveToDb = async () => {
+        try {
+          await store.clear();
+          if (data.length > 0) await store.bulkPut(data);
+        } catch (err) { console.error(err); }
+      };
+      saveToDb();
+    }, [data, isDbLoaded]);
+  };
+
   const [isDbLoaded, setIsDbLoaded] = useState(false);
 
   useEffect(() => {
@@ -349,30 +366,10 @@ const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [orders, setOrders] = useState<Order[]>([]);
   const [competitorTracks, setCompetitorTracks] = useState<CompetitorTrack[]>([]);
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.competitorTracks.clear();
-        if (competitorTracks.length > 0) await db.competitorTracks.bulkPut(competitorTracks);
-      } catch(e) { console.error(e); }
-    };
-    saveToDb();
-  }, [competitorTracks]);
+  useDbSync(isDbLoaded, competitorTracks, db.competitorTracks);
 
   const [dealers, setDealers] = useState<Dealer[]>([]);
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.dealers.clear();
-        if (dealers.length > 0) await db.dealers.bulkPut(dealers);
-      } catch(e) { console.error(e); }
-    };
-    saveToDb();
-  }, [dealers]);
+  useDbSync(isDbLoaded, dealers, db.dealers);
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
     const saved = localStorage.getItem('fieldpro_range');
@@ -720,6 +717,25 @@ const App: React.FC = () => {
     }
   }, [applyKalmanFilter, detectionRange, lang]);
 
+  // Request permissions once the handler is ready
+  useEffect(() => {
+    let mounted = true;
+    const requestInitialPermissions = async () => {
+      try {
+        const result = await Geolocation.requestPermissions();
+        if (result.location === 'granted' && mounted) {
+          getCurrentPosition({ enableHighAccuracy: true }).then(pos => {
+            if (pos && mounted) handlePositionUpdate(pos);
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('Initial permission request failed:', err);
+      }
+    };
+    requestInitialPermissions();
+    return () => { mounted = false; };
+  }, [handlePositionUpdate]);
+
   useEffect(() => {
     const setupAppListeners = async () => {
       try {
@@ -809,22 +825,12 @@ const App: React.FC = () => {
   const [orderReplacements, setOrderReplacements] = useState<ReplacementItem[]>([]);
   const [showReplacementModal, setShowReplacementModal] = useState(false);
   const [tempReplacement, setTempReplacement] = useState<Partial<ReplacementItem>>({});
-
+  
   const [payments, setPayments] = useState<Payment[]>([]);
+  useDbSync(isDbLoaded, payments, db.payments);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [tempPayment, setTempPayment] = useState<Partial<Payment>>({});
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.payments.clear();
-        if (payments.length > 0) await db.payments.bulkPut(payments);
-      } catch(e) { console.error(e); }
-    };
-    saveToDb();
-  }, [payments]);
 
   const getShopBalance = useCallback((shopId: string) => {
     const shopOrders = orders.filter(o => o.shopId === shopId);
@@ -838,19 +844,9 @@ const App: React.FC = () => {
   const [showSmartRoute, setShowSmartRoute] = useState(false);
   const [showTargetVsAchievement, setShowTargetVsAchievement] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  useDbSync(isDbLoaded, expenses, db.expenses);
   const [showExpensesModal, setShowExpensesModal] = useState(false);
   const [tempExpense, setTempExpense] = useState<Partial<Expense>>({});
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.expenses.clear();
-        if (expenses.length > 0) await db.expenses.bulkPut(expenses);
-      } catch(e) { console.error(e); }
-    };
-    saveToDb();
-  }, [expenses]);
 
   const addExpense = () => {
     if (!tempExpense.category || !tempExpense.amount) return;
@@ -871,19 +867,9 @@ const App: React.FC = () => {
   };
 
   const [targets, setTargets] = useState<Target[]>([]);
+  useDbSync(isDbLoaded, targets, db.targets);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Partial<Target> | null>(null);
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.targets.clear();
-        if (targets.length > 0) await db.targets.bulkPut(targets);
-      } catch(e) { console.error(e); }
-    };
-    saveToDb();
-  }, [targets]);
 
   const getAchievement = useCallback((type: 'Sales' | 'Visits', period: 'Daily' | 'Monthly') => {
     const now = new Date();
@@ -1198,27 +1184,19 @@ const App: React.FC = () => {
     showQuickAccess, selectedOrderForDetail, view
   ]);
 
-  // Location Watchdog: Restarts tracking if it gets stuck
+  // Active Polling: Forces the "Current Spot" and location meters to update seamlessly every 5 seconds.
   useEffect(() => {
     const watchdog = setInterval(() => {
-      const now = Date.now();
-      if (lastLocationUpdateTime > 0 && now - lastLocationUpdateTime > 30000) {
-        console.warn('Location tracking seems stuck. Force refreshing...');
-        getCurrentPosition({ enableHighAccuracy: true }).then(pos => {
-          if (pos) {
-            const smoothed = applyKalmanFilter(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy || 10);
-            setCurrentLocation({
-              lat: smoothed.lat,
-              lng: smoothed.lng,
-              accuracy: pos.coords.accuracy
-            });
-            setLastLocationUpdateTime(Date.now());
-          }
-        }).catch(console.error);
-      }
-    }, 15000);
+      getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 }).then(pos => {
+        if (pos && pos.coords) {
+          handlePositionUpdate(pos);
+        }
+      }).catch(e => {
+        // Silently catch errors to avoid console spam when app is backgrounded
+      });
+    }, 5000);
     return () => clearInterval(watchdog);
-  }, [lastLocationUpdateTime]);
+  }, [handlePositionUpdate]);
 
   useEffect(() => {
     const isAnyModalOpen = 
@@ -1404,105 +1382,21 @@ const App: React.FC = () => {
     return undefined;
   }, [shopsWithDistances, detectionRange]);
 
-  useEffect(() => {
-    getCurrentPosition().then(pos => {
-      const initialLoc = { 
-        lat: pos.coords.latitude, 
-        lng: pos.coords.longitude,
-        heading: pos.coords.heading,
-        speed: pos.coords.speed
-      };
-      setCurrentLocation(initialLoc);
-    }).catch(console.error);
-  }, []);
+  useDbSync(isDbLoaded, shops, db.shops);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.shops.clear();
-        if (shops.length > 0) await db.shops.bulkPut(shops);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [shops, isDbLoaded]);
+  useDbSync(isDbLoaded, areas, db.areas);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.areas.clear();
-        if (areas.length > 0) await db.areas.bulkPut(areas);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [areas, isDbLoaded]);
+  useDbSync(isDbLoaded, routes, db.routes);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.routes.clear();
-        if (routes.length > 0) await db.routes.bulkPut(routes);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [routes, isDbLoaded]);
+  useDbSync(isDbLoaded, visits, db.visits);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.visits.clear();
-        if (visits.length > 0) await db.visits.bulkPut(visits);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [visits, isDbLoaded]);
+  useDbSync(isDbLoaded, products, db.products);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.products.clear();
-        if (products.length > 0) await db.products.bulkPut(products);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [products, isDbLoaded]);
+  useDbSync(isDbLoaded, orders, db.orders);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.orders.clear();
-        if (orders.length > 0) await db.orders.bulkPut(orders);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [orders, isDbLoaded]);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.dealers.clear();
-        if (dealers.length > 0) await db.dealers.bulkPut(dealers);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [dealers, isDbLoaded]);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    const saveToDb = async () => {
-      try {
-        await db.places.clear();
-        if (places.length > 0) await db.places.bulkPut(places);
-      } catch (err) { console.error(err); }
-    };
-    saveToDb();
-  }, [places, isDbLoaded]);
+  useDbSync(isDbLoaded, places, db.places);
 
   useEffect(() => {
     try {
@@ -2169,6 +2063,7 @@ const App: React.FC = () => {
     { id: 'routes', key: 'smartRoute', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> },
     { id: 'expenses', key: 'expenses', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
     { id: 'competitors', key: 'competitorTracking', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" /></svg> },
+    { id: 'reload', key: 'reloadApp', icon: <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> },
   ];
 
   const addToCart = (product: Product) => {
@@ -2726,6 +2621,7 @@ const App: React.FC = () => {
             nearbyRange={nearbyRange}
             setNearbyRange={setNearbyRange}
             getSpecialDayShops={getSpecialDayShops}
+            currentLocation={currentLocation}
             t={t}
           />
         )}
@@ -3292,6 +3188,7 @@ const App: React.FC = () => {
                     else if (item.id === 'routes') setShowSmartRoute(true);
                     else if (item.id === 'expenses') setShowExpensesModal(true);
                     else if (item.id === 'competitors') setView('Competitors');
+                    else if (item.id === 'reload') { window.location.reload(); return; }
                     setShowQuickAccess(false);
                   }}>
                   <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">{item.icon}</div>

@@ -20,6 +20,7 @@ interface DashboardViewProps {
   nearbyRange: number;
   setNearbyRange: (val: number) => void;
   getSpecialDayShops: () => Shop[];
+  currentLocation: any;
   t: (key: string) => string;
 }
 
@@ -41,6 +42,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   nearbyRange,
   setNearbyRange,
   getSpecialDayShops,
+  currentLocation,
   t
 }) => {
   return (
@@ -68,7 +70,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
         
-        {atShop ? (
+        {!currentLocation ? (
+          <div className="bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center space-y-3">
+            <div className="w-12 h-12 bg-slate-200 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto text-slate-400">
+               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            </div>
+            <div>
+              <p className="text-xs font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider">{lang === 'en' ? 'GPS is Off or Loading' : 'জিপিএস বন্ধ বা লোড হচ্ছে'}</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-1">{lang === 'en' ? 'Please ensure GPS is enabled and permissions are granted.' : 'অনুগ্রহ করে জিপিএস চালু করুন এবং পারমিশন দিন।'}</p>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-6 py-2 bg-indigo-600 text-white text-[10px] font-black rounded-xl shadow-lg shadow-indigo-100 dark:shadow-none active:scale-95 transition-all uppercase tracking-widest"
+            >
+              {lang === 'en' ? 'Refresh App' : 'অ্যাপ রিফ্রেশ করুন'}
+            </button>
+          </div>
+        ) : atShop ? (
           <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 dark:from-emerald-900/20 dark:via-slate-800 dark:to-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 shadow-sm flex gap-4 cursor-pointer relative overflow-hidden group" onClick={() => setViewingShop(atShop)}>
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-400/10 rounded-full -translate-y-16 translate-x-16 blur-3xl group-hover:bg-emerald-500/20 transition-colors"></div>
             <div className="absolute top-2 right-2 z-20">

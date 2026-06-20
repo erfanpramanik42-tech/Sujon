@@ -8,36 +8,26 @@ import * as L from 'leaflet';
 
 import { NotificationService } from './services/NotificationService';
 
-const init = async () => {
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
+
+// Background initialization
+const initPlugins = async () => {
   try {
     await NotificationService.initialize();
-    await import('leaflet-rotate');
-    await import('leaflet.markercluster');
-
-    const rootElement = document.getElementById('root');
-    if (!rootElement) {
-      throw new Error("Could not find root element to mount to");
-    }
-
-    const root = ReactDOM.createRoot(rootElement);
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>
-    );
+    // Pre-load map plugins non-blocking
+    import('leaflet-rotate').catch(e => console.warn('Leaflet rotate plugin failed to load', e));
+    import('leaflet.markercluster').catch(e => console.warn('Leaflet markercluster plugin failed to load', e));
   } catch (error) {
-    console.error("Initialization failed:", error);
-    // If offline and scripts fail, still try to mount to see cached UI
-    const rootElement = document.getElementById('root');
-    if (rootElement) {
-      const root = ReactDOM.createRoot(rootElement);
-      root.render(
-        <React.StrictMode>
-          <App />
-        </React.StrictMode>
-      );
-    }
+    console.error("Plugin initialization failed:", error);
   }
 };
 
-init();
+initPlugins();

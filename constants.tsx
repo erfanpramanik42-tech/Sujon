@@ -248,6 +248,7 @@ export const TRANSLATIONS: Translations = {
   upcomingSpecialDays: { en: 'Upcoming Special Days', bn: 'আসন্ন বিশেষ দিনসমূহ' },
   celebratingToday: { en: 'Celebrating Today', bn: 'আজকের উদযাপন' },
   manageShops: { en: 'Manage Shops', bn: 'দোকান ব্যবস্থাপনা' },
+  reloadApp: { en: 'Reload App', bn: 'অ্যাপ রিলোড করুন' },
   deleteShop: { en: 'Delete Shop', bn: 'দোকান মুছুন' },
   confirmDeleteShop: { en: 'Are you sure you want to delete this shop?', bn: 'আপনি কি নিশ্চিত যে আপনি এই দোকানটি মুছতে চান?' },
   activePartner: { en: 'Active Partner', bn: 'অ্যাক্টিভ পার্টনার' },
