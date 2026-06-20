@@ -62,6 +62,28 @@ async function startServer() {
     }
   });
 
+  // Proxy route for Google Roads API (Snap to Roads)
+  app.get("/api/snap-to-roads", async (req, res) => {
+    try {
+      const { path: pathParam, interpolate = "true" } = req.query;
+      const apiKey = process.env.GOOGLE_MAPS_PLATFORM_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "Google Maps API key not configured" });
+      }
+
+      const url = `https://roads.googleapis.com/v1/snapToRoads?path=${pathParam}&interpolate=${interpolate}&key=${apiKey}`;
+      
+      console.log(`Snap to Roads Proxy: Snapping path points`);
+      const response = await fetch(url);
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Snap to Roads Proxy error:", error);
+      res.status(500).json({ error: "Failed to snap to roads" });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

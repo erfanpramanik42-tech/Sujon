@@ -24,6 +24,7 @@ import { ShopDetailModal } from './components/ShopDetailModal';
 import { AreaManagementModal } from './components/AreaManagementModal';
 import { calculateDistance, getCurrentPosition } from './services/locationService';
 import { getBatchRoadDistances } from './services/distanceService';
+import { simplifyPath, snapPointsToRoads } from './services/roadsService';
 import { MapComponent } from './components/MapComponent';
 import { NotificationToast } from './components/NotificationToast';
 import { VisualAnalytics } from './components/VisualAnalytics';
@@ -48,6 +49,27 @@ const generateId = () => {
     return crypto.randomUUID();
   }
   return `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+};
+
+// --- Custom Hook: Database Synchronization ---
+const useDbSync = (isDbLoaded: boolean, data: any[], table: any) => {
+  const isInitialLoad = useRef(true);
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      return;
+    }
+    const saveToDb = async () => {
+      try {
+        await table.clear();
+        if (data.length > 0) await table.bulkPut(data);
+      } catch (err) {
+        console.error(`Sync error for ${table.name}:`, err);
+      }
+    };
+    saveToDb();
+  }, [data, isDbLoaded, table]);
 };
 
 // --- Main App Component ---
@@ -144,24 +166,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const useDbSync = (isDbLoaded: boolean, data: any[], store: any) => {
-    const isInitialLoad = useRef(true);
-    useEffect(() => {
-      if (!isDbLoaded) return;
-      if (isInitialLoad.current) {
-        isInitialLoad.current = false;
-        return;
-      }
-      const saveToDb = async () => {
-        try {
-          await store.clear();
-          if (data.length > 0) await store.bulkPut(data);
-        } catch (err) { console.error(err); }
-      };
-      saveToDb();
-    }, [data, isDbLoaded]);
-  };
-
   const [isDbLoaded, setIsDbLoaded] = useState(false);
 
   useEffect(() => {
@@ -175,6 +179,7 @@ const App: React.FC = () => {
           db.orders.toArray(), db.competitorTracks.toArray(), db.dealers.toArray(), db.payments.toArray(), db.expenses.toArray(), db.targets.toArray()
         ]);
 
+        // Prioritize Dexie, then LocalStorage, then Initial Constants
         if (_shops.length > 0) setShops(_shops);
         else {
           const saved = localStorage.getItem('fieldpro_shops');
@@ -184,23 +189,9 @@ const App: React.FC = () => {
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setShops(parsed);
                 await db.shops.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
-        if (_places.length > 0) setPlaces(_places);
-        else {
-          const saved = localStorage.getItem('fieldpro_places');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setPlaces(parsed);
-                await db.places.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
+              } else { setShops(INITIAL_SHOPS); }
+            } catch(e) { setShops(INITIAL_SHOPS); }
+          } else { setShops(INITIAL_SHOPS); }
         }
 
         if (_areas.length > 0) setAreas(_areas);
@@ -212,37 +203,9 @@ const App: React.FC = () => {
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setAreas(parsed);
                 await db.areas.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
-        if (_routes.length > 0) setRoutes(_routes);
-        else {
-          const saved = localStorage.getItem('fieldpro_routes');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setRoutes(parsed);
-                await db.routes.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
-        if (_visits.length > 0) setVisits(_visits);
-        else {
-          const saved = localStorage.getItem('fieldpro_visits');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setVisits(parsed);
-                await db.visits.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
+              } else { setAreas(INITIAL_AREAS); }
+            } catch(e) { setAreas(INITIAL_AREAS); }
+          } else { setAreas(INITIAL_AREAS); }
         }
 
         if (_products.length > 0) setProducts(_products);
@@ -254,94 +217,34 @@ const App: React.FC = () => {
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setProducts(parsed);
                 await db.products.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
+              } else { setProducts(INITIAL_PRODUCTS); }
+            } catch(e) { setProducts(INITIAL_PRODUCTS); }
+          } else { setProducts(INITIAL_PRODUCTS); }
         }
 
+        if (_routes.length > 0) setRoutes(_routes);
+        else {
+          const saved = localStorage.getItem('fieldpro_routes');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setRoutes(parsed);
+                await db.routes.bulkPut(parsed);
+              } else { setRoutes(DEMO_ROUTES); }
+            } catch(e) { setRoutes(DEMO_ROUTES); }
+          } else { setRoutes(DEMO_ROUTES); }
+        }
+
+        if (_places.length > 0) setPlaces(_places);
+        if (_visits.length > 0) setVisits(_visits);
         if (_orders.length > 0) setOrders(_orders);
-        else {
-          const saved = localStorage.getItem('fieldpro_orders');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setOrders(parsed);
-                await db.orders.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
         if (_competitorTracks.length > 0) setCompetitorTracks(_competitorTracks);
-        else {
-          const saved = localStorage.getItem('fieldpro_competitor_tracks');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setCompetitorTracks(parsed);
-                await db.competitorTracks.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
         if (_dealers.length > 0) setDealers(_dealers);
-        else {
-          const saved = localStorage.getItem('fieldpro_dealers');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setDealers(parsed);
-                await db.dealers.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
         if (_payments.length > 0) setPayments(_payments);
-        else {
-          const saved = localStorage.getItem('fieldpro_payments');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setPayments(parsed);
-                await db.payments.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
         if (_expenses.length > 0) setExpenses(_expenses);
-        else {
-          const saved = localStorage.getItem('fieldpro_expenses');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setExpenses(parsed);
-                await db.expenses.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
-
         if (_targets.length > 0) setTargets(_targets);
-        else {
-          const saved = localStorage.getItem('fieldpro_targets');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setTargets(parsed);
-                await db.targets.bulkPut(parsed);
-              }
-            } catch(e) {}
-          }
-        }
+
       } catch (e) {
         console.error('Error loading dexie db:', e);
       } finally {
@@ -352,7 +255,11 @@ const App: React.FC = () => {
   }, []);
 
   const [shops, setShops] = useState<Shop[]>(INITIAL_SHOPS);
+  useDbSync(isDbLoaded, shops, db.shops);
+
   const [places, setPlaces] = useState<Place[]>([]);
+  useDbSync(isDbLoaded, places, db.places);
+
   useEffect(() => {
     try {
     } catch (e) {
@@ -361,15 +268,34 @@ const App: React.FC = () => {
   }, [places]);
 
   const [areas, setAreas] = useState<Area[]>(INITIAL_AREAS);
+  useDbSync(isDbLoaded, areas, db.areas);
+
   const [routes, setRoutes] = useState<SalesRoute[]>(DEMO_ROUTES);
+  useDbSync(isDbLoaded, routes, db.routes);
+
   const [visits, setVisits] = useState<Visit[]>([]);
+  useDbSync(isDbLoaded, visits, db.visits);
+
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  useDbSync(isDbLoaded, products, db.products);
+
   const [orders, setOrders] = useState<Order[]>([]);
+  useDbSync(isDbLoaded, orders, db.orders);
+
   const [competitorTracks, setCompetitorTracks] = useState<CompetitorTrack[]>([]);
   useDbSync(isDbLoaded, competitorTracks, db.competitorTracks);
 
   const [dealers, setDealers] = useState<Dealer[]>([]);
   useDbSync(isDbLoaded, dealers, db.dealers);
+
+  const [payments, setPayments] = useState<Payment[]>([]);
+  useDbSync(isDbLoaded, payments, db.payments);
+
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  useDbSync(isDbLoaded, expenses, db.expenses);
+
+  const [targets, setTargets] = useState<Target[]>([]);
+  useDbSync(isDbLoaded, targets, db.targets);
 
   const [detectionRange, setDetectionRange] = useState<number>(() => {
     const saved = localStorage.getItem('fieldpro_range');
@@ -658,35 +584,67 @@ const App: React.FC = () => {
 
     if (isTrackingRef.current && activeRouteRef.current) {
       // Ignore poor accuracy points to prevent "web" patterns in path
-      if (pos.coords.accuracy && pos.coords.accuracy > 45) return;
+      // Tightened from 45m to 25m for better precision
+      if (pos.coords.accuracy && pos.coords.accuracy > 25) return;
+
+      // Filter by speed: avoid jitter when stationary
+      // speed is usually in m/s. 0.3 m/s (~1km/h) is very slow.
+      if (pos.coords.speed !== undefined && pos.coords.speed !== null && pos.coords.speed < 0.35) {
+        // We're likely stopped or jittering, don't add to path to avoid "jumble"
+        return;
+      }
 
       const lastPoint = activeRouteRef.current.path[activeRouteRef.current.path.length - 1];
       const displacement = lastPoint ? calculateDistance(newLoc, lastPoint) : 100;
       
-      // Threshold reduced to 3m for better precision while following path exactly
-      if (displacement >= 3) {
-        setActiveRoute(prev => prev ? ({ ...prev, path: [...prev.path, newLoc] }) : null);
+      // Increased threshold to 8m to filter out high-frequency noise and jitter
+      // This creates smoother polylines
+      if (displacement >= 8) {
+        setActiveRoute(prev => {
+          if (!prev) return null;
+          const newPath = [...prev.path, newLoc];
+          
+          // Fill buffer for snapping
+          snappingBufferRef.current.push(newLoc);
+          
+          // Trigger snap to roads every 15 new points
+          if (snappingBufferRef.current.length >= 15 && !isSnappingRef.current) {
+            triggerRoadSnapping();
+          }
+          
+          return { ...prev, path: newPath };
+        });
       }
+
       if (lastStopCheckLocRef.current) {
         const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
-        if (staticDist < 15) {
+        if (staticDist < 12) {
           staticTimeCounterRef.current += 1;
-          if (staticTimeCounterRef.current === 3) {
-            const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
-            const near = shopsByD[0];
-            const areaName = near && near.d < 100 
-              ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
-              : 'Field Point';
-            setActiveRoute(prev => {
-              if (!prev) return null;
-              const newStop: StopPoint = {
-                location: newLoc,
-                areaName: areaName,
-                stopNumber: prev.stops.length + 1,
-                timestamp: Date.now()
-              };
-              return { ...prev, stops: [...prev.stops, newStop] };
-            });
+          // Only add a stop if we've been static for several updates
+          if (staticTimeCounterRef.current === 5) {
+            const lastStop = activeRouteRef.current.stops[activeRouteRef.current.stops.length - 1];
+            const distFromLastStop = lastStop ? calculateDistance(newLoc, lastStop.location) : 1000;
+            
+            // Only add a new stop if it's at least 30m away from the previous one
+            // This prevents the repetitive labels seen in the screenshot
+            if (distFromLastStop > 30) {
+              const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
+              const near = shopsByD[0];
+              const areaName = near && near.d < 100 
+                ? areasRef.current.find(a => a.id === near.areaId)?.name || 'Point'
+                : 'Field Point';
+
+              setActiveRoute(prev => {
+                if (!prev) return null;
+                const newStop: StopPoint = {
+                  location: newLoc,
+                  areaName: areaName,
+                  stopNumber: prev.stops.length + 1,
+                  timestamp: Date.now()
+                };
+                return { ...prev, stops: [...prev.stops, newStop] };
+              });
+            }
           }
         } else {
           staticTimeCounterRef.current = 0;
@@ -716,6 +674,67 @@ const App: React.FC = () => {
       }
     }
   }, [applyKalmanFilter, detectionRange, lang]);
+
+  const triggerRoadSnapping = async () => {
+    if (!activeRouteRef.current || isSnappingRef.current || snappingBufferRef.current.length < 10) return;
+    
+    isSnappingRef.current = true;
+    const pointsToSnap = [...snappingBufferRef.current];
+    
+    try {
+      const snapped = await snapPointsToRoads(pointsToSnap);
+      
+      if (snapped && snapped.length > 2) {
+        setActiveRoute(prev => {
+          if (!prev) return null;
+          
+          // Replace the messy segment (last pointsToSnap.length) with the snapped segment
+          const existingPathBase = prev.path.slice(0, prev.path.length - pointsToSnap.length);
+          const newPath = [...existingPathBase, ...snapped];
+          
+          // Apply RDP simplification to keep the overall point count low and lines smooth
+          // 0.00001 is roughly 1.1 meters tolerance
+          const simplified = simplifyPath(newPath, 0.000015);
+          
+          return { ...prev, path: simplified };
+        });
+        
+        // Successfully snapped, clear the buffer for next segment
+        snappingBufferRef.current = [];
+      }
+    } catch (e) {
+      console.warn("Snapping failed:", e);
+      // If failed, we don't clear the buffer, maybe retry next time with more points
+    } finally {
+      isSnappingRef.current = false;
+    }
+  };
+
+  const reRequestPermissions = useCallback(async () => {
+    try {
+       const result = await Geolocation.requestPermissions();
+       if (result.location === 'granted') {
+         getCurrentPosition({ enableHighAccuracy: true }).then(pos => {
+           if (pos) handlePositionUpdate(pos);
+         }).catch(() => {});
+         setAlertInfo({
+           show: true,
+           title: lang === 'en' ? "Permissions Active" : "লোকেশন পারমিশন সক্রিয়",
+           message: lang === 'en' ? "Location services are now connected." : "লোকেশন সার্ভিস এখন সংযুক্ত আছে।",
+           type: 'success'
+         });
+       } else {
+         setAlertInfo({
+           show: true,
+           title: lang === 'en' ? "Permission Needed" : "অনুমতি প্রয়োজন",
+           message: lang === 'en' ? "Please allow location access specifically." : "দয়া করে লোকেশন অ্যাক্সেস অনুমতি দিন।",
+           type: 'error'
+         });
+       }
+    } catch (err) {
+      console.warn('Manual permission request failed:', err);
+    }
+  }, [handlePositionUpdate, lang]);
 
   // Request permissions once the handler is ready
   useEffect(() => {
@@ -826,8 +845,6 @@ const App: React.FC = () => {
   const [showReplacementModal, setShowReplacementModal] = useState(false);
   const [tempReplacement, setTempReplacement] = useState<Partial<ReplacementItem>>({});
   
-  const [payments, setPayments] = useState<Payment[]>([]);
-  useDbSync(isDbLoaded, payments, db.payments);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [tempPayment, setTempPayment] = useState<Partial<Payment>>({});
@@ -843,8 +860,6 @@ const App: React.FC = () => {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showSmartRoute, setShowSmartRoute] = useState(false);
   const [showTargetVsAchievement, setShowTargetVsAchievement] = useState(false);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  useDbSync(isDbLoaded, expenses, db.expenses);
   const [showExpensesModal, setShowExpensesModal] = useState(false);
   const [tempExpense, setTempExpense] = useState<Partial<Expense>>({});
 
@@ -866,8 +881,6 @@ const App: React.FC = () => {
     setExpenses(prev => prev.filter(e => e.id !== id));
   };
 
-  const [targets, setTargets] = useState<Target[]>([]);
-  useDbSync(isDbLoaded, targets, db.targets);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Partial<Target> | null>(null);
 
@@ -1026,6 +1039,8 @@ const App: React.FC = () => {
   const alertedShopsRef = useRef<Set<string>>(new Set());
   const lastStopCheckLocRef = useRef<GeoLocation | null>(null);
   const staticTimeCounterRef = useRef<number>(0);
+  const snappingBufferRef = useRef<GeoLocation[]>([]);
+  const isSnappingRef = useRef<boolean>(false);
   const shopsRef = useRef(activeShops);
   const areasRef = useRef(activeAreas);
   const isTrackingRef = useRef(isTracking);
@@ -2732,6 +2747,7 @@ const App: React.FC = () => {
             resetApp={resetApp}
             fileInputRef={fileInputRef}
             handleFileChange={handleFileChange}
+            reRequestPermissions={reRequestPermissions}
           />
         )}
 

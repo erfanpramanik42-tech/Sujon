@@ -47,6 +47,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   const markersRef = useRef<any[]>([]);
   const stopMarkersRef = useRef<any[]>([]);
   const routeLineRef = useRef<any>(null);
+  const directionMarkersRef = useRef<any[]>([]);
   const roadNavLineRef = useRef<any>(null);
   const userMarkerRef = useRef<any>(null);
   const playbackMarkerRef = useRef<any>(null);
@@ -416,6 +417,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!leafletMap.current || !activeRoute) {
       if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+      directionMarkersRef.current.forEach(m => m.remove());
+      directionMarkersRef.current = [];
       stopMarkersRef.current.forEach(m => m.remove());
       stopMarkersRef.current = [];
       return;
@@ -426,7 +429,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     const isHistoryView = !!activeRoute.endTime;
 
     if (routeLineRef.current) routeLineRef.current.remove();
-    routeLineRef.current = L.polyline(activeRoute.path.map(p => [p.lat, p.lng]), {
+    directionMarkersRef.current.forEach(m => m.remove());
+    directionMarkersRef.current = [];
+
+    const pathPoints = activeRoute.path.map(p => [p.lat, p.lng]);
+    routeLineRef.current = L.polyline(pathPoints, {
       color: isHistoryView ? '#1a73e8' : '#ef4444', 
       weight: 6,
       opacity: 0.8,
@@ -434,6 +441,37 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       lineCap: 'round',
       dashArray: null
     }).addTo(leafletMap.current);
+
+    // Add direction arrows every few points
+    if (activeRoute.path.length > 1) {
+      const step = Math.max(1, Math.floor(activeRoute.path.length / 10)); // Show ~10 arrows per route
+      for (let i = 0; i < activeRoute.path.length - 1; i += step) {
+        const p1 = activeRoute.path[i];
+        const p2 = activeRoute.path[i + 1];
+        
+        // Calculate bearing
+        const y = Math.sin((p2.lng - p1.lng) * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180);
+        const x = Math.cos(p1.lat * Math.PI / 180) * Math.sin(p2.lat * Math.PI / 180) -
+                  Math.sin(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.cos((p2.lng - p1.lng) * Math.PI / 180);
+        const brng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+        const arrowMarker = L.marker([p1.lat, p1.lng], {
+          icon: L.divIcon({
+            className: 'route-direction-arrow',
+            html: `<div style="transform: rotate(${brng}deg); color: white;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14"></path>
+                <path d="M12 5l7 7-7 7"></path>
+              </svg>
+            </div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
+          }),
+          interactive: false
+        }).addTo(leafletMap.current);
+        directionMarkersRef.current.push(arrowMarker);
+      }
+    }
 
     stopMarkersRef.current.forEach(m => m.remove());
     stopMarkersRef.current = (activeRoute.stops || []).map((stop, idx) => {
@@ -878,6 +916,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
           opacity: 0.9 !important;
         }
         .timeline-tooltip-clean:before { display: none; }
+        .route-direction-arrow { pointer-events: none !important; z-index: 1000 !important; }
         .active-ping::after {
           content: '';
           position: absolute;
