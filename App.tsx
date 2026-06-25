@@ -620,14 +620,13 @@ const App: React.FC = () => {
         const staticDist = calculateDistance(newLoc, lastStopCheckLocRef.current);
         if (staticDist < 12) {
           staticTimeCounterRef.current += 1;
-          // Only add a stop if we've been static for several updates
-          if (staticTimeCounterRef.current === 5) {
+          // We still track stops internally for logs, but we will hide them visually in MapComponent during active tracking if needed
+          // or just increase the threshold even more to avoid clutter
+          if (staticTimeCounterRef.current === 8) { // Increased from 5 to 8 (about 40-60 seconds static)
             const lastStop = activeRouteRef.current.stops[activeRouteRef.current.stops.length - 1];
             const distFromLastStop = lastStop ? calculateDistance(newLoc, lastStop.location) : 1000;
             
-            // Only add a new stop if it's at least 30m away from the previous one
-            // This prevents the repetitive labels seen in the screenshot
-            if (distFromLastStop > 30) {
+            if (distFromLastStop > 100) { // Increased from 30m to 100m to avoid nearby repetitive labels
               const shopsByD = shopsRef.current.map(s => ({...s, d: calculateDistance(newLoc, s.location)})).sort((a,b)=>a.d-b.d);
               const near = shopsByD[0];
               const areaName = near && near.d < 100 
@@ -2654,6 +2653,7 @@ const App: React.FC = () => {
               onShopClick={(shop) => setViewingShop(shop)}
               visitedShopIds={visits.filter(v => v.date === todayIso).map(v => v.shopId)}
               t={t} 
+              lang={lang}
             />
           </div>
         )}
@@ -3321,6 +3321,7 @@ const App: React.FC = () => {
               onShopClick={(shop) => setViewingShop(shop)}
               visitedShopIds={viewingRoute ? visits.filter(v => v.timestamp >= viewingRoute.startTime && v.timestamp <= (viewingRoute.endTime || Date.now())).map(v => v.shopId) : []}
               t={t} 
+              lang={lang}
             />
             <button 
               onClick={() => setViewingRoute(null)} 

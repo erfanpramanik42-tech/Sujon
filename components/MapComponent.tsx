@@ -1,6 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as L from 'leaflet';
-import { Navigation } from 'lucide-react';
+import { 
+  Navigation, 
+  Layers, 
+  Eye, 
+  AlertTriangle, 
+  Compass, 
+  Play, 
+  Map as MapIcon, 
+  Search,
+  Target,
+  Crosshair
+} from 'lucide-react';
 import { Shop, GeoLocation, SalesRoute, Area, Place } from '../types';
 import { calculateDistance } from '../services/locationService';
 
@@ -25,6 +36,7 @@ interface MapComponentProps {
   onStopNavigation?: () => void;
   visitedShopIds?: string[];
   t: (key: string) => string;
+  lang: 'en' | 'bn';
 }
 
 export const MapComponent: React.FC<MapComponentProps> = ({ 
@@ -40,7 +52,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   onShopClick,
   onStopNavigation,
   visitedShopIds = [],
-  t
+  t,
+  lang
 }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<any>(null);
@@ -50,6 +63,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   const directionMarkersRef = useRef<any[]>([]);
   const roadNavLineRef = useRef<any>(null);
   const userMarkerRef = useRef<any>(null);
+  const accuracyCircleRef = useRef<any>(null);
   const playbackMarkerRef = useRef<any>(null);
   const clusterGroupRef = useRef<any>(null);
   const layersRef = useRef<{ street: any; satellite: any; google: any; hybrid: any }>({ street: null, satellite: null, google: null, hybrid: null });
@@ -160,10 +174,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
 
     if (currentLocation?.speed && currentLocation.speed > 1 && currentLocation.heading !== null && currentLocation.heading !== undefined) {
        setHeading(currentLocation.heading);
-       return;
+       // We still want to listen for orientation if available to show fine-grained rotation
     }
-
-    if (!isHeadingUp) return;
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
       let rawHeading = 0;
@@ -188,6 +200,12 @@ export const MapComponent: React.FC<MapComponentProps> = ({
 
     window.addEventListener('deviceorientation', handleOrientation, true);
     window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+    
+    // Proactively request permission for orientation if available
+    const requestPermission = (DeviceOrientationEvent as any).requestPermission;
+    if (typeof requestPermission === 'function') {
+      requestPermission().catch(() => {});
+    }
     
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation, true);
@@ -341,26 +359,42 @@ export const MapComponent: React.FC<MapComponentProps> = ({
 
   useEffect(() => {
     if (!leafletMap.current || !currentLocation) return;
-    // @ts-ignore
-    
 
+    // Accuracy Circle
+    if (!accuracyCircleRef.current) {
+      accuracyCircleRef.current = L.circle([currentLocation.lat, currentLocation.lng], {
+        radius: currentLocation.accuracy || 20,
+        className: 'accuracy-circle'
+      }).addTo(leafletMap.current);
+    } else {
+      accuracyCircleRef.current.setLatLng([currentLocation.lat, currentLocation.lng]);
+      accuracyCircleRef.current.setRadius(currentLocation.accuracy || 20);
+    }
+
+    // User Marker
     if (!userMarkerRef.current) {
       userMarkerRef.current = L.marker([currentLocation.lat, currentLocation.lng], {
         zIndexOffset: 10000,
         icon: L.divIcon({
           className: 'user-dot-marker',
-          html: `<div class="user-dot-container active-ping"><div class="user-dot"></div><div class="user-arrow"></div></div>`,
+          html: `<div class="user-dot-container">
+            <div class="user-beam"></div>
+            <div class="user-dot"></div>
+          </div>`,
           iconSize: [24, 24],
           iconAnchor: [12, 12]
         })
       }).addTo(leafletMap.current);
+      
+      // Auto-focus on first detection
+      leafletMap.current.setView([currentLocation.lat, currentLocation.lng], 18);
     } else {
       userMarkerRef.current.setLatLng([currentLocation.lat, currentLocation.lng]);
     }
 
     const markerElement = userMarkerRef.current.getElement();
     if (markerElement) {
-      const container = markerElement.querySelector('.user-dot-container');
+      const container = markerElement.querySelector('.user-dot-container') as HTMLElement;
       if (container) {
         if (isHeadingUp) {
           leafletMap.current.setBearing(heading);
@@ -371,7 +405,6 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       }
     }
 
-    // Algorithm Change: Respect manual interaction. Snap to center only if isFollowing is true.
     if (isFollowing) {
       leafletMap.current.panTo([currentLocation.lat, currentLocation.lng], { 
         animate: true, 
@@ -442,14 +475,39 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       dashArray: null
     }).addTo(leafletMap.current);
 
-    // Add direction arrows every few points
+    // Add direction arrows and Start/End markers
     if (activeRoute.path.length > 1) {
-      const step = Math.max(1, Math.floor(activeRoute.path.length / 10)); // Show ~10 arrows per route
-      for (let i = 0; i < activeRoute.path.length - 1; i += step) {
+      const startPoint = activeRoute.path[0];
+      const endPoint = activeRoute.path[activeRoute.path.length - 1];
+
+      // Start Marker (Green Dot)
+      const startMarker = L.circleMarker([startPoint.lat, startPoint.lng], {
+        radius: 7,
+        fillColor: '#22c55e',
+        color: 'white',
+        weight: 3,
+        fillOpacity: 1,
+        zIndexOffset: 1000
+      }).addTo(leafletMap.current).bindTooltip(lang === 'en' ? 'Start' : 'শুরু', { permanent: true, direction: 'top', className: 'timeline-tooltip-clean' });
+      directionMarkersRef.current.push(startMarker);
+
+      // End Marker (Red Dot)
+      const endMarker = L.circleMarker([endPoint.lat, endPoint.lng], {
+        radius: 7,
+        fillColor: '#ef4444',
+        color: 'white',
+        weight: 3,
+        fillOpacity: 1,
+        zIndexOffset: 1000
+      }).addTo(leafletMap.current).bindTooltip(isHistoryView ? (lang === 'en' ? 'End' : 'শেষ') : (lang === 'en' ? 'Live' : 'লাইভ'), { permanent: true, direction: 'top', className: 'timeline-tooltip-clean' });
+      directionMarkersRef.current.push(endMarker);
+
+      const step = Math.max(1, Math.floor(activeRoute.path.length / 12)); 
+      for (let i = step; i < activeRoute.path.length - step; i += step) {
         const p1 = activeRoute.path[i];
         const p2 = activeRoute.path[i + 1];
+        if (!p1 || !p2) continue;
         
-        // Calculate bearing
         const y = Math.sin((p2.lng - p1.lng) * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180);
         const x = Math.cos(p1.lat * Math.PI / 180) * Math.sin(p2.lat * Math.PI / 180) -
                   Math.sin(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.cos((p2.lng - p1.lng) * Math.PI / 180);
@@ -474,32 +532,29 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     }
 
     stopMarkersRef.current.forEach(m => m.remove());
-    stopMarkersRef.current = (activeRoute.stops || []).map((stop, idx) => {
-      const isEndpoint = idx === 0 || idx === activeRoute.stops.length - 1;
-      
-      const marker = L.circleMarker([stop.location.lat, stop.location.lng], {
-        radius: isEndpoint ? 7 : 5,
-        fillColor: '#ffffff',
-        color: isHistoryView ? '#1a73e8' : '#ef4444',
-        weight: 3,
-        fillOpacity: 1
-      }).addTo(leafletMap.current);
+    // Only show intermediate stops in history view to avoid live tracking clutter
+    if (isHistoryView && activeRoute.stops) {
+      stopMarkersRef.current = activeRoute.stops.map((stop, idx) => {
+        const isEndpoint = idx === 0 || idx === activeRoute.stops!.length - 1;
+        if (isEndpoint) return null; // We already have Start/End markers
 
-      if (isHistoryView) {
-        marker.bindTooltip(`
-          <div class="timeline-label-minimal">
-            <span class="place-name">${stop.areaName}</span>
-          </div>
-        `, { 
-          permanent: true, 
-          direction: 'top', 
-          offset: [0, -10],
+        return L.marker([stop.location.lat, stop.location.lng], {
+          icon: L.divIcon({
+            className: 'stop-point-marker',
+            html: `<div class="w-6 h-6 bg-amber-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg">
+              ${stop.stopNumber}
+            </div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          })
+        }).addTo(leafletMap.current).bindTooltip(stop.areaName, {
+          permanent: true,
+          direction: 'bottom',
+          offset: [0, 10],
           className: 'timeline-tooltip-clean'
         });
-      }
-
-      return marker;
-    });
+      }).filter(Boolean) as any[];
+    }
 
     if (isHistoryView && routeLineRef.current.getLatLngs().length > 0) {
       setIsFollowing(false);
@@ -510,7 +565,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         duration: 1.5 
       });
     }
-  }, [activeRoute?.id, !!activeRoute?.endTime]);
+  }, [activeRoute?.id, !!activeRoute?.endTime, lang]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -859,26 +914,80 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       <div className="absolute top-6 right-6 z-20 flex flex-col gap-2">
         {onTogglePlaybackControls && (
           <button onClick={onTogglePlaybackControls} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${showPlaybackControls ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <Play className="w-5 h-5" />
           </button>
         )}
-        <button onClick={toggleMapType} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${(mapType === 'satellite' || mapType === 'hybrid') ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}>
+        <button onClick={toggleMapType} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${(mapType === 'satellite' || mapType === 'hybrid') ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`} title={t('mapType')}>
           <div className="relative">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <Layers className="w-5 h-5" />
             <span className="absolute -top-1 -right-1 bg-white text-indigo-600 text-[6px] font-black px-0.5 rounded border border-indigo-100 uppercase">
               {mapType === 'google' ? 'G' : mapType === 'hybrid' ? 'GH' : mapType === 'street' ? 'OSM' : 'S'}
             </span>
           </div>
         </button>
-        <button onClick={toggleFollow} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isFollowing ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
-        <button onClick={toggleHeadingUp} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isHeadingUp ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ transform: `rotate(${isHeadingUp ? -heading : 0}deg)` }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button>
+        <button 
+          onClick={() => {
+            if (currentLocation) {
+              leafletMap.current?.flyTo([currentLocation.lat, currentLocation.lng], 18, { animate: true, duration: 1.5 });
+              setIsFollowing(true);
+            }
+            // Request orientation permission on user interaction
+            const requestPermission = (DeviceOrientationEvent as any).requestPermission;
+            if (typeof requestPermission === 'function') {
+              requestPermission().catch(() => {});
+            }
+          }}
+          className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isFollowing ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`}
+          title={t('locateMe') || 'Locate Me'}
+        >
+          <Target className={`w-5 h-5 ${isFollowing ? 'animate-pulse' : ''}`} />
+        </button>
+        <button onClick={toggleHeadingUp} className={`p-2.5 rounded-xl shadow-xl border border-white/20 backdrop-blur-md transition-all active:scale-95 ${isHeadingUp ? 'bg-indigo-600 text-white' : 'bg-white/90 text-slate-700'}`} title={t('headingUp')}>
+          <Compass className="w-5 h-5" style={{ transform: `rotate(${isHeadingUp ? -heading : 0}deg)`, transition: 'transform 0.2s ease-out' }} />
+        </button>
       </div>
       <style>{`
         .leaflet-container { background: #f1f3f4; height: 100%; width: 100%; }
-        .user-dot-marker { z-index: 2000 !important; }
-        .user-dot-container { position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: transform 0.1s linear; }
-        .user-dot { width: 12px; height: 12px; background: #4285F4; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(66, 133, 244, 0.4); z-index: 2; }
-        .user-arrow { position: absolute; top: -4px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #4285F4; z-index: 1; }
+        .user-dot-marker { z-index: 10000 !important; }
+        .user-dot-container { 
+          position: relative; 
+          width: 32px; 
+          height: 32px; 
+          display: flex; 
+          align-items: center; 
+          justify-content: center; 
+          transition: transform 0.1s linear; 
+        }
+        .user-dot { 
+          width: 14px; 
+          height: 14px; 
+          background: #4285F4; 
+          border: 2.5px solid white; 
+          border-radius: 50%; 
+          box-shadow: 0 0 5px rgba(0,0,0,0.3); 
+          z-index: 3; 
+          position: relative; 
+        }
+        .user-beam { 
+          position: absolute; 
+          bottom: 16px; /* From center of 32px container */
+          left: 50%;
+          transform: translateX(-50%);
+          width: 60px; 
+          height: 60px; 
+          background: radial-gradient(circle at 50% 100%, rgba(66, 133, 244, 0.4) 0%, rgba(66, 133, 244, 0) 70%);
+          clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
+          z-index: 1; 
+          pointer-events: none;
+        }
+        .accuracy-circle {
+          stroke: #4285F4;
+          stroke-width: 1;
+          fill: #4285F4;
+          fill-opacity: 0.15;
+          pointer-events: none;
+          transition: all 0.5s ease-in-out;
+        }
         
         .shop-pin-marker { pointer-events: auto; }
         .shop-pin-container { display: flex; flex-direction: column; align-items: center; transition: transform 0.2s; }

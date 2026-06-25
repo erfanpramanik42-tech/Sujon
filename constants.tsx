@@ -278,5 +278,7 @@ export const TRANSLATIONS: Translations = {
   useCurrentLocation: { en: 'Use Current Location', bn: 'বর্তমান অবস্থান ব্যবহার করুন' },
   internalMap: { en: 'Internal Map', bn: 'ইন্টারনাল ম্যাপ' },
   googleMaps: { en: 'Google Maps', bn: 'গুগল ম্যাপ' },
-  fixPermissions: { en: 'Fix Permissions', bn: 'পারমিশন ঠিক করুন' }
+  fixPermissions: { en: 'Fix Permissions', bn: 'পারমিশন ঠিক করুন' },
+  locateMe: { en: 'Locate Me', bn: 'বর্তমান অবস্থান' },
+  viewInGoogleMaps: { en: 'View in Google Maps', bn: 'গুগল ম্যাপে দেখুন' }
 };

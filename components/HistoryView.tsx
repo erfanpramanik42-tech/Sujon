@@ -73,11 +73,40 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <span className="text-[8px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md">{route.path.length} Pts</span>
                         <span className="text-[8px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md">{route.stops?.length || 0} Stops</span>
                       </div>
-                      <button 
-                        type="button"
-                        onClick={(e) => deleteRoute(route.id, e)}
-                        className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all active:scale-90"
-                      >
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (route.path && route.path.length > 0) {
+                              const origin = route.path[0];
+                              const destination = route.path[route.path.length - 1];
+                              let waypoints = "";
+                              if (route.path.length > 2) {
+                                const middlePoints = route.path.slice(1, -1);
+                                const maxWaypoints = 20;
+                                const step = Math.max(1, Math.floor(middlePoints.length / maxWaypoints));
+                                const selectedPoints = [];
+                                for (let i = 0; i < middlePoints.length; i += step) {
+                                  if (selectedPoints.length < maxWaypoints) selectedPoints.push(middlePoints[i]);
+                                }
+                                waypoints = `&waypoints=${selectedPoints.map(p => `${p.lat},${p.lng}`).join('|')}`;
+                              }
+                              const url = `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}${waypoints}&travelmode=driving`;
+                              window.open(url, '_blank');
+                            }
+                          }}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all active:scale-90"
+                          title={t('viewInGoogleMaps')}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={(e) => deleteRoute(route.id, e)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all active:scale-90"
+                        >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -85,7 +114,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
                   </div>
                 </div>
-              )) : <div className="py-12 text-center text-slate-400 text-xs">No route history yet.</div>}
+              </div>
+            )) : <div className="py-12 text-center text-slate-400 text-xs">No route history yet.</div>}
             </div>
           </div>
         ) : (
